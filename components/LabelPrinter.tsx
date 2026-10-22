@@ -80,9 +80,9 @@ export function LabelPrinter() {
     conn === "connected" ? `Connected${model ? ` · ${model}` : ""}` : conn === "connecting" ? "Connecting…" : "Not connected";
 
   return (
-    <div className="mx-auto max-w-[980px] px-4 pt-5 pb-16">
-      <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-xl font-semibold tracking-tight">
+    <div className="mx-auto w-full max-w-[1100px] pt-4 pb-10 sm:px-6 sm:pt-6 sm:pb-16 lg:px-8">
+      <header className="mb-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-4 sm:px-0">
+        <h1 className="text-lg font-semibold tracking-tight sm:text-xl">
           Lot Label <span className="font-medium text-muted">· The Spanish Alchemist · Nimbot B1 40×30</span>
         </h1>
         <span className="inline-flex items-center gap-2 text-sm text-muted">
@@ -92,14 +92,14 @@ export function LabelPrinter() {
       </header>
 
       {!supported && (
-        <div className="mb-4 rounded-xl border border-[#f1d3a1] bg-[#fff4e0] px-3 py-2.5 text-sm text-[#6d4300]">
+        <div className="mx-4 mb-4 rounded-xl border border-[#f1d3a1] bg-[#fff4e0] px-3 py-2.5 text-sm text-[#6d4300] sm:mx-0">
           This browser doesn&apos;t support Web Bluetooth. Use Chrome or Edge on Android, Windows, Mac or Linux, and open
           this page over HTTPS. iPhone/Safari won&apos;t work.
         </div>
       )}
 
-      <div className="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
-        <section className="rounded-2xl border border-line bg-white p-5">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-3 sm:gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+        <section className="self-start border-y border-line bg-white p-4 sm:rounded-2xl sm:border sm:p-5">
           <h2 className="mb-3.5 text-xs font-semibold uppercase tracking-wider text-muted">Print</h2>
           <LabelPreview ref={previewRef} tpl={tpl} data={data} now={now} />
 
@@ -145,9 +145,9 @@ export function LabelPrinter() {
               <div className="h-full bg-accent transition-[width] duration-200" style={{ width: `${progress}%` }} />
             </div>
           )}
-          <p className={`mt-2.5 min-h-5 text-sm ${msg?.tone === "err" ? "text-err" : msg?.tone === "ok" ? "text-ok" : ""}`}>
-            {msg?.text}
-          </p>
+          {msg && <p className={`mt-2.5 text-sm ${msg?.tone === "err" ? "text-err" : msg?.tone === "ok" ? "text-ok" : ""}`}>
+            {msg.text}
+          </p>}
         </section>
 
         <TemplateForm tpl={tpl} update={update} />

@@ -182,7 +182,7 @@ function Check({ checked, onChange, children }: { checked: boolean; onChange: (v
 
 export function TemplateForm({ tpl, update }: Props) {
   return (
-    <section className="self-start rounded-2xl border border-line bg-white p-5">
+    <section className="self-start border-y border-line bg-white p-4 sm:rounded-2xl sm:border sm:p-5">
       <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted">Template</h2>
 
       <div className="divide-y divide-line [&>*]:py-4 [&>*:first-child]:pt-0">

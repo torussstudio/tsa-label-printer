@@ -45,12 +45,12 @@ export const LabelPreview = forwardRef<LabelPreviewHandle, Props>(function Label
     : "bg-[repeating-conic-gradient(#eeece6_0%_25%,#f7f6f2_0%_50%)] bg-[length:16px_16px]";
 
   return (
-    <div className={`grid place-items-center rounded-xl p-5 ${bg}`}>
+    <div className={`grid place-items-center rounded-xl p-3 sm:p-5 ${bg}`}>
       <canvas
         ref={canvasRef}
         width={LABEL_W}
         height={LABEL_H}
-        className={`aspect-[4/3] w-full max-w-[340px] rounded-md [image-rendering:pixelated] ${
+        className={`aspect-[4/3] w-full max-w-[380px] rounded-md [image-rendering:pixelated] ${
           tpl.paper === "transparent"
             ? "mix-blend-multiply opacity-80 outline outline-1 outline-white/50"
             : "bg-white shadow-[0_1px_2px_rgba(0,0,0,.08),0_6px_20px_rgba(0,0,0,.08)]"

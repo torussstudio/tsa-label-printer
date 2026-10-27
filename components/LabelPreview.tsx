@@ -1,7 +1,10 @@
 "use client";
 
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
-import { LABEL_H, LABEL_W, drawLabel, ensureFont, type LabelTemplate, type PrintData } from "@/lib/label";
+import { DOTS_PER_MM, drawLabel, ensureFont, fontsFor, getPreset, type LabelTemplate, type PrintData } from "@/lib/label";
+
+/** Loads every web font the current design uses before drawing. */
+const loadFonts = (tpl: LabelTemplate) => Promise.all(Object.values(fontsFor(tpl)).map(ensureFont));
 
 export interface LabelPreviewHandle {
   /** Renders a fresh label (with the current date) onto an offscreen canvas for printing. */
@@ -17,44 +20,43 @@ interface Props {
 export const LabelPreview = forwardRef<LabelPreviewHandle, Props>(function LabelPreview({ tpl, data, now }, ref) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
+  // Size comes from the selected preset (TSA box 40×30 / Bottle 30×20)
+  const preset = getPreset(tpl.preset);
+  const pw = preset.wMm * DOTS_PER_MM;
+  const ph = preset.hMm * DOTS_PER_MM;
+
   useEffect(() => {
     if (!now) return;
     let cancelled = false;
-    Promise.all([ensureFont(tpl.font), ensureFont(tpl.labelFont)]).then(() => {
+    loadFonts(tpl).then(() => {
       if (!cancelled && canvasRef.current) drawLabel(canvasRef.current, tpl, data, now);
     });
     return () => { cancelled = true; };
-  }, [tpl, data, now]);
+  }, [tpl, data, now, pw, ph]);
 
   useImperativeHandle(ref, () => ({
     renderForPrint: async () => {
-      await Promise.all([ensureFont(tpl.font), ensureFont(tpl.labelFont)]);
+      await loadFonts(tpl);
       const at = new Date();
       const c = document.createElement("canvas");
-      c.width = LABEL_W;
-      c.height = LABEL_H;
+      c.width = pw;
+      c.height = ph;
       drawLabel(c, tpl, data, at);
       if (canvasRef.current) drawLabel(canvasRef.current, tpl, data, at);
       return c;
     },
-  }), [tpl, data]);
-
-  // Transparent labels: show the print over a pink "bottle" so it reads like the real thing
-  const bg = tpl.paper === "transparent"
-    ? "bg-gradient-to-b from-[#f6b3b0] via-[#f58a7a] to-[#ef5a45]"
-    : "bg-[repeating-conic-gradient(#eeece6_0%_25%,#f7f6f2_0%_50%)] bg-[length:16px_16px]";
+  }), [tpl, data, pw, ph]);
 
   return (
-    <div className={`grid place-items-center rounded-xl p-3 sm:p-5 ${bg}`}>
+    <div className="grid place-items-center rounded-xl bg-[repeating-conic-gradient(#eeece6_0%_25%,#f7f6f2_0%_50%)] bg-[length:16px_16px] p-3 sm:p-5">
       <canvas
+        // key: a new canvas element when the size changes, so the browser resets it cleanly
+        key={preset.id}
         ref={canvasRef}
-        width={LABEL_W}
-        height={LABEL_H}
-        className={`aspect-[4/3] w-full max-w-[380px] rounded-md [image-rendering:pixelated] ${
-          tpl.paper === "transparent"
-            ? "mix-blend-multiply opacity-80 outline outline-1 outline-white/50"
-            : "bg-white shadow-[0_1px_2px_rgba(0,0,0,.08),0_6px_20px_rgba(0,0,0,.08)]"
-        }`}
+        width={pw}
+        height={ph}
+        style={{ aspectRatio: `${pw} / ${ph}` }}
+        className="w-full max-w-[380px] rounded-md bg-white [image-rendering:pixelated] shadow-[0_1px_2px_rgba(0,0,0,.08),0_6px_20px_rgba(0,0,0,.08)]"
         aria-label="Label preview"
       />
     </div>

@@ -1,11 +1,41 @@
-// Label geometry for NIIMBOT B1: 203 dpi ≈ 8 dots/mm.
-// A 40×30 mm sticker → 320 × 240 dots (4:3).
 export const LABEL_W = 320;
 export const LABEL_H = 240;
+export const DOTS_PER_MM = 8;
 
 export type DateFormat = "dd.mm.yy" | "dd.mm.yyyy" | "dd/mm/yy";
 export type LabelPaper = "transparent" | "gaps";
-export type FontKey = "barlow" | "sharetechsans" | "jetbrains" | "space" | "sharetech" | "plex";
+export type FontKey =
+  | "barlow" | "sharetechsans" | "jetbrains" | "space" | "sharetech" | "plex"
+  | "caveat" | "shadows" | "reenie" | "nanum" | "homemade"
+  | "rokkitt" | "courier" | "special" | "zilla" | "arvo"
+  | "grotesk" | "rajdhani" | "chakra" | "saira"
+  | "montech" | "montechsemi" | "lastsignature" | "typewriterserial";
+
+export type PresetId = "tsa-box" | "bottle";
+
+/**
+ * "classic": hourglass icon + the template's fonts.
+ * "handmade": handwritten date, "Recién hecho para ti." tagline in the left cell, no icon.
+ */
+export type LabelDesign = "classic" | "handmade";
+
+/** A physical label type: its size, paper and design. */
+export interface LabelPreset {
+  id: PresetId;
+  name: string;
+  wMm: number;
+  hMm: number;
+  paper: LabelPaper;
+  design: LabelDesign;
+}
+
+export const PRESETS: LabelPreset[] = [
+  { id: "tsa-box", name: "TSA box", wMm: 40, hMm: 30, paper: "gaps", design: "handmade" },       // white sticker
+  { id: "bottle", name: "Bottle", wMm: 30, hMm: 20, paper: "transparent", design: "handmade" },   // transparent sticker
+];
+
+/** Falls back to the first preset if the saved id is missing/unknown. */
+export const getPreset = (id?: string): LabelPreset => PRESETS.find((p) => p.id === id) ?? PRESETS[0];
 
 export const FONTS: Record<FontKey, { label: string; family: string; weight: number }> = {
   barlow: { label: "Barlow Condensed", family: "Barlow Condensed", weight: 700 },
@@ -14,13 +44,54 @@ export const FONTS: Record<FontKey, { label: string; family: string; weight: num
   space: { label: "Space Mono", family: "Space Mono", weight: 700 },
   sharetech: { label: "Share Tech Mono", family: "Share Tech Mono", weight: 400 },
   plex: { label: "IBM Plex Mono", family: "IBM Plex Mono", weight: 700 },
+  // handwriting (date)
+  caveat: { label: "Caveat", family: "Caveat", weight: 500 },
+  shadows: { label: "Shadows Into Light", family: "Shadows Into Light", weight: 400 },
+  reenie: { label: "Reenie Beanie", family: "Reenie Beanie", weight: 400 },
+  nanum: { label: "Nanum Pen Script", family: "Nanum Pen Script", weight: 400 },
+  homemade: { label: "Homemade Apple", family: "Homemade Apple", weight: 400 },
+  lastsignature: { label: "Last Signature", family: "Last Signature", weight: 400 },
+  // slab / typewriter (left cell text)
+  rokkitt: { label: "Rokkitt", family: "Rokkitt", weight: 500 },
+  courier: { label: "Courier Prime", family: "Courier Prime", weight: 400 },
+  special: { label: "Special Elite", family: "Special Elite", weight: 400 },
+  zilla: { label: "Zilla Slab", family: "Zilla Slab", weight: 500 },
+  arvo: { label: "Arvo", family: "Arvo", weight: 400 },
+  typewriterserial: { label: "Typewriter Serial", family: "Typewriter Serial", weight: 400 },
+  // bold captions (HECHO EL / EXP / LOTE)
+  grotesk: { label: "Space Grotesk", family: "Space Grotesk", weight: 700 },
+  rajdhani: { label: "Rajdhani", family: "Rajdhani", weight: 700 },
+  chakra: { label: "Chakra Petch", family: "Chakra Petch", weight: 600 },
+  saira: { label: "Saira Semi Condensed", family: "Saira Semi Condensed", weight: 700 },
+  montechsemi: { label: "Montech SemiBold", family: "Montech", weight: 600 },
+  // values (EXP date, lot)
+  montech: { label: "Montech Regular", family: "Montech", weight: 400 },
 };
+
+/** Which font each part of the label uses, depending on the design. */
+export function fontsFor(tpl: LabelTemplate) {
+  if (getPreset(tpl.preset).design === "handmade") {
+    return {
+      date: tpl.dateFont ?? "lastsignature",
+      value: tpl.valueFont ?? "montech",
+      caption: tpl.captionFont ?? "montechsemi",
+      body: tpl.bodyFont ?? "typewriterserial",
+    };
+  }
+  return { date: tpl.font, value: tpl.font, caption: tpl.labelFont, body: tpl.labelFont };
+}
 
 /** Fixed parts of the label. Set once, saved in the browser. */
 export interface LabelTemplate {
-  madeLabel: string;      // "HECHO EL:"
-  expLabel: string;       // "EXP:"
-  lotLabel: string;       // "LOTE:"
+  preset: PresetId;       // which label type (size + paper)
+  madeLabel: string;      // "HECHO EL"
+  expLabel: string;       // "EXP"
+  lotLabel: string;       // "LOTE"
+  tagline: string;        // left cell text of the handmade design: "Recién hecho para ti."
+  dateFont: FontKey;      // handmade design: the big "made" date
+  valueFont: FontKey;     // handmade design: EXP date + lot
+  captionFont: FontKey;   // handmade design: HECHO EL / EXP / LOTE
+  bodyFont: FontKey;      // handmade design: left cell text
   lotPrefix: string;      // "TSA"
   lotWithYear: boolean;   // TSA + 26 + batch
   shelfLifeMonths: number;
@@ -29,7 +100,7 @@ export interface LabelTemplate {
   labelFont: FontKey;     // small captions (HECHO EL / EXP / LOTE)
   showIcon: boolean;
   density: number;        // 1–5
-  paper: LabelPaper;
+  paper: LabelPaper;      // kept for old saved data; the active paper comes from the preset
   offsetX: number;        // px, nudge print position
   offsetY: number;
   scale: number;          // % size of the table on the label (100 = reference design)
@@ -37,9 +108,15 @@ export interface LabelTemplate {
 }
 
 export const DEFAULT_TEMPLATE: LabelTemplate = {
-  madeLabel: "HECHO EL:",
-  expLabel: "EXP:",
-  lotLabel: "LOTE:",
+  preset: "tsa-box",
+  madeLabel: "HECHO EL",
+  expLabel: "EXP",
+  lotLabel: "LOTE",
+  tagline: "Recién hecho para ti.",
+  dateFont: "lastsignature",
+  valueFont: "montech",
+  captionFont: "montechsemi",
+  bodyFont: "typewriterserial",
   lotPrefix: "TSA",
   lotWithYear: true,
   shelfLifeMonths: 12,
@@ -105,7 +182,7 @@ function setFont(ctx: CanvasRenderingContext2D, key: FontKey, px: number) {
 /** Writes `text` centred in a cell, shrinking it to fit. `bold` adds a thin stroke (fake bold). */
 function cellText(
   ctx: CanvasRenderingContext2D, key: FontKey, text: string,
-  x0: number, y0: number, x1: number, y1: number, maxPx: number, bold = false,
+  x0: number, y0: number, x1: number, y1: number, maxPx: number, bold = false, stroke = 0,
 ) {
   const pad = 6;
   // Small caps labels are letter-spaced like the reference design
@@ -117,6 +194,45 @@ function cellText(
   ctx.textBaseline = "middle";
   const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2 + px * 0.04;
   ctx.fillText(text, cx, cy);
+  if (stroke > 0) {
+    // thin pen strokes (handwriting) can vanish on a thermal head, so thicken them a little
+    ctx.lineWidth = stroke;
+    ctx.lineJoin = "round";
+    ctx.strokeText(text, cx, cy);
+  }
+}
+
+/** Left-aligned text, wrapped by words, as big as fits the box (the "Recién hecho para ti." cell). */
+function cellParagraph(
+  ctx: CanvasRenderingContext2D, key: FontKey, text: string,
+  x0: number, y0: number, x1: number, y1: number, maxPx: number,
+) {
+  const padX = 7, padY = 4;
+  const maxW = x1 - x0 - padX * 2, maxH = y1 - y0 - padY * 2;
+  (ctx as CanvasRenderingContext2D & { letterSpacing?: string }).letterSpacing = "0px";
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return;
+
+  let px = maxPx;
+  let lines: string[] = [];
+  for (; px >= 8; px--) {
+    setFont(ctx, key, px);
+    lines = [];
+    let cur = "";
+    for (const w of words) {
+      const next = cur ? `${cur} ${w}` : w;
+      if (cur && ctx.measureText(next).width > maxW) { lines.push(cur); cur = w; } else cur = next;
+    }
+    lines.push(cur);
+    const fits = lines.every((l) => ctx.measureText(l).width <= maxW) && lines.length * px * 1.15 <= maxH;
+    if (fits) break;
+  }
+  setFont(ctx, key, px);
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  const lh = px * 1.15;
+  const top = (y0 + y1) / 2 - (lines.length * lh) / 2 + lh / 2;
+  lines.forEach((l, i) => ctx.fillText(l, x0 + padX, top + i * lh));
 }
 
 /** Hourglass as in the reference: square bulbs, crossed glass, sand in the top bulb. */
@@ -159,19 +275,23 @@ function drawHourglass(ctx: CanvasRenderingContext2D, cx: number, cy: number, h:
 }
 
 /**
- * Draws the lot/date table (reference design, 4:3):
+ * Draws the lot/date table (reference design):
  *   ┌───────────┬───────────────────────┐
- *   │ HECHO EL: │       22.08.26        │
+ *   │ HECHO EL  │       22.08.26        │
  *   ├───────────┼────────┬──────────────┤
- *   │           │  EXP:  │   22.08.27   │
+ *   │           │  EXP   │   22.08.27   │
  *   │ hourglass ├────────┼──────────────┤
- *   │           │ LOTE:  │   TSA26057   │
+ *   │           │ LOTE   │   TSA26057   │
  *   └───────────┴────────┴──────────────┘
+ * The canvas size decides the label size (set from the preset); the layout is
+ * proportional, and the text sizes follow the smaller of the two scale factors.
  */
 export function drawLabel(canvas: HTMLCanvasElement, tpl: LabelTemplate, data: PrintData, now: Date) {
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) return;
-  const W = LABEL_W, H = LABEL_H;
+  const W = canvas.width, H = canvas.height;
+  // Font size factor relative to the 40×30 reference label
+  const fs = Math.min(W / LABEL_W, H / LABEL_H);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, W, H);
@@ -211,14 +331,19 @@ export function drawLabel(canvas: HTMLCanvasElement, tpl: LabelTemplate, data: P
   const exp = formatDate(addMonths(now, tpl.shelfLifeMonths), tpl.format);
   const lot = buildLot(tpl, data, now);
 
-  cellText(ctx, tpl.labelFont, tpl.madeLabel, X0, Y0, X1, Y1, 18, true);
-  cellText(ctx, tpl.font, made, X1, Y0, X3, Y1, 30);
-  cellText(ctx, tpl.labelFont, tpl.expLabel, X1, Y1, X2, Y2, 18, true);
-  cellText(ctx, tpl.font, exp, X2, Y1, X3, Y2, 22);
-  cellText(ctx, tpl.labelFont, tpl.lotLabel, X1, Y2, X2, Y3, 18, true);
-  cellText(ctx, tpl.font, lot, X2, Y2, X3, Y3, 22);
+  const handmade = getPreset(tpl.preset).design === "handmade";
+  const f = fontsFor(tpl);
 
-  if (tpl.showIcon) drawHourglass(ctx, (X0 + X1) / 2, (Y1 + Y3) / 2, (Y3 - Y1) * 0.78);
+  cellText(ctx, f.caption, tpl.madeLabel, X0, Y0, X1, Y1, 18 * fs, !handmade);
+  if (handmade) cellText(ctx, f.date, made, X1, Y0, X3, Y1, 42 * fs, false, 0.7 * fs);
+  else cellText(ctx, f.date, made, X1, Y0, X3, Y1, 30 * fs);
+  cellText(ctx, f.caption, tpl.expLabel, X1, Y1, X2, Y2, 18 * fs, !handmade);
+  cellText(ctx, f.value, exp, X2, Y1, X3, Y2, 22 * fs);
+  cellText(ctx, f.caption, tpl.lotLabel, X1, Y2, X2, Y3, 18 * fs, !handmade);
+  cellText(ctx, f.value, lot, X2, Y2, X3, Y3, 22 * fs);
+
+  if (handmade) cellParagraph(ctx, f.body, tpl.tagline, X0, Y1, X1, Y3, 20 * fs);
+  else if (tpl.showIcon) drawHourglass(ctx, (X0 + X1) / 2, (Y1 + Y3) / 2, (Y3 - Y1) * 0.78);
 
   // Thermal head prints only pure black or white
   ctx.setTransform(1, 0, 0, 1, 0, 0);

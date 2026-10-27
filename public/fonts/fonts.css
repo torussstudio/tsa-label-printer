@@ -1,0 +1,24 @@
+@font-face {
+  font-family: "Montech";
+  src: url("./Montech-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Montech";
+  src: url("./Montech-SemiBold.woff2") format("woff2");
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Last Signature";
+  src: url("./LastSignature.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Typewriter Serial";
+  src: url("./TypewriterSerial-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}

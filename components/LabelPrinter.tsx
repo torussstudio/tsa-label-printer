@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { LabelPreview, type LabelPreviewHandle } from "@/components/LabelPreview";
 import { TemplateForm, inputCls } from "@/components/TemplateForm";
 import { useNow, usePrintData, useTemplate } from "@/hooks/useTemplate";
-import { addMonths, buildLot, formatDate } from "@/lib/label";
+import { addMonths, buildLot, formatDate, getPreset } from "@/lib/label";
 import { connectPrinter, isWebBluetoothSupported, printCanvas, type PrinterClient } from "@/lib/printer";
 
 type Msg = { text: string; tone?: "ok" | "err" } | null;
@@ -17,6 +17,7 @@ export function LabelPrinter() {
   const { data, updateData } = usePrintData();
   const now = useNow();
   const previewRef = useRef<LabelPreviewHandle>(null);
+  const preset = getPreset(tpl.preset);
 
   const clientRef = useRef<PrinterClient | null>(null);
   const [conn, setConn] = useState<Conn>("idle");
@@ -64,7 +65,7 @@ export function LabelPrinter() {
     setMsg({ text: `Printing ${n} label${n > 1 ? "s" : ""}…` });
     try {
       // Fresh render at the moment of printing so the date is always current
-      await printCanvas(client, await preview.renderForPrint(), n, tpl.density, tpl.paper);
+      await printCanvas(client, await preview.renderForPrint(), n, tpl.density, preset.paper);
       setProgress(100);
       setMsg({ text: `Done · ${n} label${n > 1 ? "s" : ""} printed`, tone: "ok" });
     } catch (e) {
@@ -73,7 +74,7 @@ export function LabelPrinter() {
       setPrinting(false);
       setTimeout(() => setProgress(null), 1500);
     }
-  }, [printing, qty, tpl.density, tpl.paper]);
+  }, [printing, qty, tpl.density, preset.paper]);
 
   const dotCls = conn === "connected" ? "bg-ok" : conn === "connecting" ? "bg-warn" : "bg-neutral-400";
   const statusText =
@@ -83,7 +84,7 @@ export function LabelPrinter() {
     <div className="mx-auto w-full max-w-[1100px] pt-4 pb-10 sm:px-6 sm:pt-6 sm:pb-16 lg:px-8">
       <header className="mb-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-4 sm:px-0">
         <h1 className="text-lg font-semibold tracking-tight sm:text-xl">
-          Lot Label <span className="font-medium text-muted">· The Spanish Alchemist · Nimbot B1 40×30</span>
+          Lot Label <span className="font-medium text-muted">· The Spanish Alchemist · Nimbot B1 {preset.wMm}×{preset.hMm}</span>
         </h1>
         <span className="inline-flex items-center gap-2 text-sm text-muted">
           <span className={`size-2.5 rounded-full ${dotCls}`} />

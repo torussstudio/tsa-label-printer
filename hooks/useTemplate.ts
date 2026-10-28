@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { DEFAULT_TEMPLATE, type LabelTemplate, type PrintData } from "@/lib/label";
+import { DEFAULT_TEMPLATE, type LabelTemplate } from "@/lib/label";
 
 /** State persisted in localStorage (per browser), merged over `defaults`. */
 function usePersisted<T extends object>(key: string, defaults: T) {
@@ -31,13 +31,8 @@ function usePersisted<T extends object>(key: string, defaults: T) {
 }
 
 export function useTemplate() {
-  const { value, update, loaded } = usePersisted<LabelTemplate>("tsa-lot-label-template-v6", DEFAULT_TEMPLATE);
+  const { value, update, loaded } = usePersisted<LabelTemplate>("tsa-lot-label-template-v7", DEFAULT_TEMPLATE);
   return { tpl: value, update, loaded };
-}
-
-export function usePrintData() {
-  const { value, update } = usePersisted<PrintData>("tsa-lot-label-data-v1", { batch: "057" });
-  return { data: value, updateData: update };
 }
 
 /**

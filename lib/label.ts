@@ -11,11 +11,11 @@ export type FontKey =
   | "grotesk" | "rajdhani" | "chakra" | "saira"
   | "montech" | "montechsemi" | "lastsignature" | "typewriterserial";
 
-export type PresetId = "tsa-box" | "bottle";
+export type PresetId = "serum-box" | "crema-box" | "cleanser-box" | "bottle";
 
 /**
  * "classic": hourglass icon + the template's fonts.
- * "handmade": handwritten date, "Recién hecho para ti." tagline in the left cell, no icon.
+ * "handmade": handwritten date, hourglass icon in the left cell.
  */
 export type LabelDesign = "classic" | "handmade";
 
@@ -30,8 +30,10 @@ export interface LabelPreset {
 }
 
 export const PRESETS: LabelPreset[] = [
-  { id: "tsa-box", name: "TSA box", wMm: 40, hMm: 30, paper: "gaps", design: "handmade" },       // white sticker
-  { id: "bottle", name: "Bottle", wMm: 30, hMm: 20, paper: "transparent", design: "handmade" },   // transparent sticker
+  { id: "serum-box", name: "Serum box", wMm: 30, hMm: 30, paper: "gaps", design: "handmade" },       // white sticker, 3×3 cm
+  { id: "crema-box", name: "Cream box", wMm: 35, hMm: 30, paper: "gaps", design: "handmade" },       // white sticker, 3.5×3 cm
+  { id: "cleanser-box", name: "Cleanser box", wMm: 35, hMm: 30, paper: "gaps", design: "handmade" }, // white sticker, 3.5×3 cm
+  { id: "bottle", name: "Bottle", wMm: 30, hMm: 20, paper: "transparent", design: "handmade" },           // transparent sticker
 ];
 
 /** Falls back to the first preset if the saved id is missing/unknown. */
@@ -51,7 +53,7 @@ export const FONTS: Record<FontKey, { label: string; family: string; weight: num
   nanum: { label: "Nanum Pen Script", family: "Nanum Pen Script", weight: 400 },
   homemade: { label: "Homemade Apple", family: "Homemade Apple", weight: 400 },
   lastsignature: { label: "Last Signature", family: "Last Signature", weight: 400 },
-  // slab / typewriter (left cell text)
+  // slab / typewriter
   rokkitt: { label: "Rokkitt", family: "Rokkitt", weight: 500 },
   courier: { label: "Courier Prime", family: "Courier Prime", weight: 400 },
   special: { label: "Special Elite", family: "Special Elite", weight: 400 },
@@ -87,14 +89,12 @@ export interface LabelTemplate {
   madeLabel: string;      // "HECHO EL"
   expLabel: string;       // "EXP"
   lotLabel: string;       // "LOTE"
-  tagline: string;        // left cell text of the handmade design: "Recién hecho para ti."
   dateFont: FontKey;      // handmade design: the big "made" date
   valueFont: FontKey;     // handmade design: EXP date + lot
   captionFont: FontKey;   // handmade design: HECHO EL / EXP / LOTE
-  bodyFont: FontKey;      // handmade design: left cell text
+  bodyFont: FontKey;      // handmade design: (unused now, left cell is the hourglass)
   lotPrefix: string;      // "TSA"
-  lotWithYear: boolean;   // TSA + 26 + batch
-  shelfLifeMonths: number;
+  lotWithYear: boolean;   // TSA + 26 + code
   format: DateFormat;
   font: FontKey;          // values (dates, lot)
   labelFont: FontKey;     // small captions (HECHO EL / EXP / LOTE)
@@ -108,18 +108,16 @@ export interface LabelTemplate {
 }
 
 export const DEFAULT_TEMPLATE: LabelTemplate = {
-  preset: "tsa-box",
+  preset: "serum-box",
   madeLabel: "HECHO EL",
   expLabel: "EXP",
   lotLabel: "LOTE",
-  tagline: "Recién hecho para ti.",
   dateFont: "lastsignature",
   valueFont: "montech",
   captionFont: "montechsemi",
   bodyFont: "typewriterserial",
   lotPrefix: "TSA",
   lotWithYear: true,
-  shelfLifeMonths: 12,
   format: "dd.mm.yy",
   font: "plex",
   labelFont: "barlow",
@@ -132,16 +130,14 @@ export const DEFAULT_TEMPLATE: LabelTemplate = {
   lineWidth: 1,
 };
 
-/** Values that change per batch / per print. */
-export interface PrintData {
-  batch: string; // "057"
-}
-
 export const DATE_FORMATS: { value: DateFormat; label: string }[] = [
   { value: "dd.mm.yy", label: "22.08.26" },
   { value: "dd.mm.yyyy", label: "22.08.2026" },
   { value: "dd/mm/yy", label: "22/08/26" },
 ];
+
+/** Fixed shelf life: expiry = made date + 11 months + 12 days. */
+export const SHELF_LIFE = { months: 11, days: 12 } as const;
 
 const p2 = (n: number) => String(n).padStart(2, "0");
 
@@ -161,9 +157,52 @@ export function addMonths(d: Date, months: number): Date {
   return r;
 }
 
-export function buildLot(tpl: LabelTemplate, data: PrintData, now: Date): string {
+export function addDays(d: Date, days: number): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + days);
+}
+
+/** Expiry date: made date + 11 months, then + 12 days. */
+export function expiryDate(made: Date): Date {
+  return addDays(addMonths(made, SHELF_LIFE.months), SHELF_LIFE.days);
+}
+
+// ---------------------------------------------------------------------------
+// Lot code: no server or database needed.
+//
+// The code is made from the exact print time (milliseconds), then scrambled so it
+// looks random. The scramble is reversible, so two different print times can never
+// give the same code. 30 bits of milliseconds = ~12.4 days, so within any day (in any
+// time zone, Central European time included) every print gets a different code, on
+// every laptop. Only two prints in the very same millisecond could match.
+// ---------------------------------------------------------------------------
+
+// 32 characters, without 0/O and 1/I/L, so the printed code is easy to read
+const LOT_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+const LOT_MASK = 0x3fffffff; // 30 bits
+const LOT_LENGTH = 6;        // 6 × 5 bits = 30 bits
+
+/** Reversible 30-bit mixer: different inputs always give different outputs. */
+function scramble30(n: number): number {
+  let x = n & LOT_MASK; // keeps the low 30 bits (works on large millisecond values too)
+  x ^= x >>> 15;
+  x = Math.imul(x, 0x2c1b3c6d) & LOT_MASK;
+  x ^= x >>> 13;
+  x = Math.imul(x, 0x297a2d39) & LOT_MASK;
+  x ^= x >>> 16;
+  return x;
+}
+
+/** 6 letters/numbers from the print time, e.g. "K7M2QX". */
+export function lotCode(at: Date): string {
+  const x = scramble30(at.getTime());
+  let s = "";
+  for (let i = 0; i < LOT_LENGTH; i++) s += LOT_ALPHABET[(x >>> (5 * i)) & 31];
+  return s;
+}
+
+export function buildLot(tpl: LabelTemplate, now: Date): string {
   const yy = String(now.getFullYear()).slice(-2);
-  return `${tpl.lotPrefix}${tpl.lotWithYear ? yy : ""}${data.batch}`.toUpperCase();
+  return `${tpl.lotPrefix}${tpl.lotWithYear ? yy : ""}${lotCode(now)}`.toUpperCase();
 }
 
 /** Makes sure the chosen web font is downloaded before drawing on canvas. */
@@ -200,39 +239,6 @@ function cellText(
     ctx.lineJoin = "round";
     ctx.strokeText(text, cx, cy);
   }
-}
-
-/** Left-aligned text, wrapped by words, as big as fits the box (the "Recién hecho para ti." cell). */
-function cellParagraph(
-  ctx: CanvasRenderingContext2D, key: FontKey, text: string,
-  x0: number, y0: number, x1: number, y1: number, maxPx: number,
-) {
-  const padX = 7, padY = 4;
-  const maxW = x1 - x0 - padX * 2, maxH = y1 - y0 - padY * 2;
-  (ctx as CanvasRenderingContext2D & { letterSpacing?: string }).letterSpacing = "0px";
-  const words = text.trim().split(/\s+/).filter(Boolean);
-  if (!words.length) return;
-
-  let px = maxPx;
-  let lines: string[] = [];
-  for (; px >= 8; px--) {
-    setFont(ctx, key, px);
-    lines = [];
-    let cur = "";
-    for (const w of words) {
-      const next = cur ? `${cur} ${w}` : w;
-      if (cur && ctx.measureText(next).width > maxW) { lines.push(cur); cur = w; } else cur = next;
-    }
-    lines.push(cur);
-    const fits = lines.every((l) => ctx.measureText(l).width <= maxW) && lines.length * px * 1.15 <= maxH;
-    if (fits) break;
-  }
-  setFont(ctx, key, px);
-  ctx.textAlign = "left";
-  ctx.textBaseline = "middle";
-  const lh = px * 1.15;
-  const top = (y0 + y1) / 2 - (lines.length * lh) / 2 + lh / 2;
-  lines.forEach((l, i) => ctx.fillText(l, x0 + padX, top + i * lh));
 }
 
 /** Hourglass as in the reference: square bulbs, crossed glass, sand in the top bulb. */
@@ -279,14 +285,14 @@ function drawHourglass(ctx: CanvasRenderingContext2D, cx: number, cy: number, h:
  *   ┌───────────┬───────────────────────┐
  *   │ HECHO EL  │       22.08.26        │
  *   ├───────────┼────────┬──────────────┤
- *   │           │  EXP   │   22.08.27   │
+ *   │           │  EXP   │   22.07.27   │
  *   │ hourglass ├────────┼──────────────┤
- *   │           │ LOTE   │   TSA26057   │
+ *   │           │ LOTE   │ TSA26K7M2QX  │
  *   └───────────┴────────┴──────────────┘
  * The canvas size decides the label size (set from the preset); the layout is
  * proportional, and the text sizes follow the smaller of the two scale factors.
  */
-export function drawLabel(canvas: HTMLCanvasElement, tpl: LabelTemplate, data: PrintData, now: Date) {
+export function drawLabel(canvas: HTMLCanvasElement, tpl: LabelTemplate, now: Date) {
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) return;
   const W = canvas.width, H = canvas.height;
@@ -328,8 +334,8 @@ export function drawLabel(canvas: HTMLCanvasElement, tpl: LabelTemplate, data: P
   ctx.restore();
 
   const made = formatDate(now, tpl.format);
-  const exp = formatDate(addMonths(now, tpl.shelfLifeMonths), tpl.format);
-  const lot = buildLot(tpl, data, now);
+  const exp = formatDate(expiryDate(now), tpl.format);
+  const lot = buildLot(tpl, now);
 
   const handmade = getPreset(tpl.preset).design === "handmade";
   const f = fontsFor(tpl);
@@ -342,8 +348,8 @@ export function drawLabel(canvas: HTMLCanvasElement, tpl: LabelTemplate, data: P
   cellText(ctx, f.caption, tpl.lotLabel, X1, Y2, X2, Y3, 18 * fs, !handmade);
   cellText(ctx, f.value, lot, X2, Y2, X3, Y3, 22 * fs);
 
-  if (handmade) cellParagraph(ctx, f.body, tpl.tagline, X0, Y1, X1, Y3, 20 * fs);
-  else if (tpl.showIcon) drawHourglass(ctx, (X0 + X1) / 2, (Y1 + Y3) / 2, (Y3 - Y1) * 0.78);
+  // Left cell: hourglass image
+  if (handmade || tpl.showIcon) drawHourglass(ctx, (X0 + X1) / 2, (Y1 + Y3) / 2, (Y3 - Y1) * 0.78);
 
   // Thermal head prints only pure black or white
   ctx.setTransform(1, 0, 0, 1, 0, 0);

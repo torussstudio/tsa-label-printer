@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LabelPreview, type LabelPreviewHandle } from "@/components/LabelPreview";
-import { TemplateForm, inputCls } from "@/components/TemplateForm";
-import { useNow, usePrintData, useTemplate } from "@/hooks/useTemplate";
-import { addMonths, buildLot, formatDate, getPreset } from "@/lib/label";
+import { TemplateForm } from "@/components/TemplateForm";
+import { useNow, useTemplate } from "@/hooks/useTemplate";
+import { buildLot, expiryDate, formatDate, getPreset } from "@/lib/label";
 import { connectPrinter, isWebBluetoothSupported, printCanvas, type PrinterClient } from "@/lib/printer";
 
 type Msg = { text: string; tone?: "ok" | "err" } | null;
@@ -14,7 +14,6 @@ const MAX_QTY = 999;
 
 export function LabelPrinter() {
   const { tpl, update } = useTemplate();
-  const { data, updateData } = usePrintData();
   const now = useNow();
   const previewRef = useRef<LabelPreviewHandle>(null);
   const preset = getPreset(tpl.preset);
@@ -64,7 +63,7 @@ export function LabelPrinter() {
     setProgress(0);
     setMsg({ text: `Printing ${n} label${n > 1 ? "s" : ""}…` });
     try {
-      // Fresh render at the moment of printing so the date is always current
+      // Fresh render at the moment of printing, so the date and the lot code are made from this exact moment
       await printCanvas(client, await preview.renderForPrint(), n, tpl.density, preset.paper);
       setProgress(100);
       setMsg({ text: `Done · ${n} label${n > 1 ? "s" : ""} printed`, tone: "ok" });
@@ -102,21 +101,16 @@ export function LabelPrinter() {
       <div className="grid grid-cols-[minmax(0,1fr)] gap-3 sm:gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
         <section className="self-start border-y border-line bg-white p-4 sm:rounded-2xl sm:border sm:p-5">
           <h2 className="mb-3.5 text-xs font-semibold uppercase tracking-wider text-muted">Print</h2>
-          <LabelPreview ref={previewRef} tpl={tpl} data={data} now={now} />
+          <LabelPreview ref={previewRef} tpl={tpl} now={now} />
 
           {now && (
             <dl className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
               <div className="rounded-lg bg-page px-2 py-1.5"><dt className="text-muted">Made</dt><dd className="font-semibold">{formatDate(now, tpl.format)}</dd></div>
-              <div className="rounded-lg bg-page px-2 py-1.5"><dt className="text-muted">Expires</dt><dd className="font-semibold">{formatDate(addMonths(now, tpl.shelfLifeMonths), tpl.format)}</dd></div>
-              <div className="rounded-lg bg-page px-2 py-1.5"><dt className="text-muted">Lot</dt><dd className="font-semibold">{buildLot(tpl, data, now)}</dd></div>
+              <div className="rounded-lg bg-page px-2 py-1.5"><dt className="text-muted">Expires</dt><dd className="font-semibold">{formatDate(expiryDate(now), tpl.format)}</dd></div>
+              <div className="rounded-lg bg-page px-2 py-1.5"><dt className="text-muted">Lot</dt><dd className="font-semibold">{buildLot(tpl, now)}</dd></div>
             </dl>
           )}
-
-          <div className="mt-3">
-            <label htmlFor="batch" className="mb-1.5 block text-xs font-semibold text-muted">Batch number <span className="font-normal">(placeholder, numbering not final)</span></label>
-            <input id="batch" inputMode="numeric" className={`${inputCls} font-mono text-lg font-semibold`} value={data.batch}
-              onChange={(e) => updateData("batch", e.target.value.toUpperCase().replace(/\s/g, ""))} />
-          </div>
+          <p className="mt-2 text-center text-xs text-muted">The lot code is made from the exact print time, so it changes on every print.</p>
 
           <div className="mt-4 flex flex-wrap gap-3">
             <div className="flex items-center overflow-hidden rounded-xl border border-line">

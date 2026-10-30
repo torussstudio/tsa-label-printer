@@ -271,7 +271,11 @@ function drawHourglass(ctx: CanvasRenderingContext2D, cx: number, cy: number, h:
   const w = h * 0.62, hw = w / 2;
   const top = cy - h / 2, bot = cy + h / 2;
   const bulb = h * 0.22, r = h * 0.05;
-  ctx.lineWidth = Math.max(1.5, h / 30);
+  // Stroke width in PRINTER DOTS, not canvas units: at least 3 dots. Thinner diagonals turn into a
+  // staircase of pixels that only touch at their corners, and a thermal head prints those as a broken,
+  // dotted line (the X and the bottom bulb were coming out broken).
+  const scale = Math.abs(ctx.getTransform().a) || 1;
+  ctx.lineWidth = Math.max(3 / scale, h / 22);
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
   // outline: top bulb → crossing diagonals → bottom bulb

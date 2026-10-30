@@ -48,13 +48,19 @@ export const PRESETS: LabelPreset[] = [
 export const getPreset = (id?: string): LabelPreset => PRESETS.find((p) => p.id === id) ?? PRESETS[0];
 
 /**
- * Printer calibration (dots, 8 dots = 1 mm), applied ONLY to the printed canvas, never to the preview.
- * The Nimbot starts printing a little after the leading edge of a gap sticker, so everything lands
- * further along the sticker than in the preview. Negative = move the design left on the canvas.
- * Measured from a test print: design landed ~6–7 mm (≈50 dots) to the right on 40×30 white stickers.
- * Transparent paper not measured yet (0). Change these numbers after a test print to fine-tune.
+ * Printhead width of the NIIMBOT B1: 48 mm = 384 dots. The paper roll is centred on the head by the
+ * roll guides, so the centre of the head = the centre of the sticker.
+ *
+ * Why this matters: if we send an image NARROWER than the head (e.g. 320 dots for a 40 mm sticker),
+ * the printer does not centre it, so the whole print lands off-centre and anything pushed towards the
+ * edge gets cut. So the printed image is always made the full head width, with the sticker area in the
+ * middle (see composeForPrinter).
  */
-export const FEED_SHIFT_DOTS: Record<LabelPaper, number> = { gaps: -50, transparent: 0 };
+export const HEAD_DOTS = 384;
+
+/** Fine alignment per paper type, in mm. + x = move right, + y = move down (towards the end of the sticker). */
+export type Calibration = Record<LabelPaper, { x: number; y: number }>;
+export const DEFAULT_CALIBRATION: Calibration = { gaps: { x: 0, y: 0 }, transparent: { x: 0, y: 0 } };
 
 export const FONTS: Record<FontKey, { label: string; family: string; weight: number }> = {
   barlow: { label: "Barlow Condensed", family: "Barlow Condensed", weight: 700 },
@@ -122,6 +128,7 @@ export interface LabelTemplate {
   offsetY: number;
   scale: number;          // % size of the table on the label (100 = reference design)
   lineWidth: number;      // table line thickness in dots (1 = reference, 2 = safer on thermal)
+  calibration: Calibration; // printer alignment per paper type, mm (set with the alignment test print)
 }
 
 export const DEFAULT_TEMPLATE: LabelTemplate = {
@@ -145,6 +152,7 @@ export const DEFAULT_TEMPLATE: LabelTemplate = {
   offsetY: 0,
   scale: 125,
   lineWidth: 1,
+  calibration: DEFAULT_CALIBRATION,
 };
 
 export const DATE_FORMATS: { value: DateFormat; label: string }[] = [
@@ -300,8 +308,6 @@ function drawHourglass(ctx: CanvasRenderingContext2D, cx: number, cy: number, h:
 export interface DrawOptions {
   /** Preview only: faint dashed outline of the design area. Never set this when printing. */
   guide?: boolean;
-  /** Print only: extra horizontal shift in dots to compensate the printer's start offset (see FEED_SHIFT_DOTS). */
-  shiftX?: number;
 }
 
 /**
@@ -337,10 +343,11 @@ export function drawLabel(canvas: HTMLCanvasElement, tpl: LabelTemplate, now: Da
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, PW, PH);
 
-  // Move origin to the design area, then scale around the design centre
-  const k = Math.max(0.5, Math.min(1.4, tpl.scale / 100));
-  const shiftX = opts.shiftX ?? 0;
-  ctx.translate(ox + shiftX, oy);
+  // Move origin to the design area, then scale around the design centre.
+  // The table spans 0.729 W × 0.473 H at 100 %, so cap the scale to keep it 1 mm inside the PAPER.
+  const kFit = Math.min((PW / 2 - DOTS_PER_MM) / (0.366 * W), (PH / 2 - DOTS_PER_MM) / (0.239 * H));
+  const k = Math.max(0.5, Math.min(1.4, kFit, tpl.scale / 100));
+  ctx.translate(ox, oy);
   ctx.translate(W / 2 + tpl.offsetX, H / 2 + tpl.offsetY);
   ctx.scale(k, k);
   ctx.translate(-W / 2, -H / 2);
@@ -355,7 +362,7 @@ export function drawLabel(canvas: HTMLCanvasElement, tpl: LabelTemplate, now: Da
   // Table lines are drawn in device pixels (no transform) and snapped to whole dots,
   // so a 1-dot line prints as exactly one crisp row/column of dots.
   const lw = Math.max(1, Math.min(3, Math.round(tpl.lineWidth)));
-  const sx = (x: number) => Math.round(ox + shiftX + W / 2 + tpl.offsetX + (x - W / 2) * k);
+  const sx = (x: number) => Math.round(ox + W / 2 + tpl.offsetX + (x - W / 2) * k);
   const sy = (y: number) => Math.round(oy + H / 2 + tpl.offsetY + (y - H / 2) * k);
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -410,4 +417,63 @@ export function drawLabel(canvas: HTMLCanvasElement, tpl: LabelTemplate, now: Da
     ctx.strokeRect(ox + 0.5, oy + 0.5, W - 1, H - 1);
     ctx.restore();
   }
+}
+/**
+ * Builds the image that is actually sent to the printer:
+ * full printhead width (HEAD_DOTS) × paper height, with the paper-sized label canvas in the middle,
+ * moved by the calibration (mm). Pixels are copied 1:1 (whole-dot offsets), so nothing is resampled.
+ */
+export function composeForPrinter(
+  label: HTMLCanvasElement,
+  calibration: { x: number; y: number } = { x: 0, y: 0 },
+  headDots = HEAD_DOTS,
+): HTMLCanvasElement {
+  const out = document.createElement("canvas");
+  out.width = Math.max(headDots, label.width);
+  out.height = label.height;
+  const ctx = out.getContext("2d")!;
+  ctx.imageSmoothingEnabled = false;
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, out.width, out.height);
+  const dx = Math.round((out.width - label.width) / 2 + calibration.x * DOTS_PER_MM);
+  const dy = Math.round(calibration.y * DOTS_PER_MM);
+  ctx.drawImage(label, dx, dy);
+  return out;
+}
+
+/**
+ * Alignment test (paper-sized): a frame 1 mm inside the sticker edge, a centre cross and mm ticks.
+ * Print it once per paper type; if the frame is not even on all sides, adjust the calibration.
+ */
+export function drawAlignmentTest(canvas: HTMLCanvasElement) {
+  const ctx = canvas.getContext("2d")!;
+  const W = canvas.width, H = canvas.height, m = DOTS_PER_MM;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = "#000";
+  // frame 1 mm inside the edge, 2 dots thick
+  ctx.fillRect(m, m, W - 2 * m, 2);
+  ctx.fillRect(m, H - m - 2, W - 2 * m, 2);
+  ctx.fillRect(m, m, 2, H - 2 * m);
+  ctx.fillRect(W - m - 2, m, 2, H - 2 * m);
+  // centre cross
+  const cx = Math.round(W / 2), cy = Math.round(H / 2);
+  ctx.fillRect(cx - 3 * m, cy - 1, 6 * m, 2);
+  ctx.fillRect(cx - 1, cy - 3 * m, 2, 6 * m);
+  // mm ticks along the inside of the frame, longer every 5 mm
+  for (let x = m; x <= W - m; x += m) {
+    const long = Math.round((x - cx) / m) % 5 === 0;
+    ctx.fillRect(x, m, 1, long ? 2 * m : m);
+    ctx.fillRect(x, H - m - (long ? 2 * m : m), 1, long ? 2 * m : m);
+  }
+  for (let y = m; y <= H - m; y += m) {
+    const long = Math.round((y - cy) / m) % 5 === 0;
+    ctx.fillRect(m, y, long ? 2 * m : m, 1);
+    ctx.fillRect(W - m - (long ? 2 * m : m), y, long ? 2 * m : m, 1);
+  }
+  ctx.font = `700 ${2 * m}px ui-monospace, Menlo, Consolas, monospace`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(`${W / m}×${H / m} mm`, cx, cy + 5 * m);
 }

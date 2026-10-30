@@ -1,14 +1,30 @@
 "use client";
 
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
-import { DOTS_PER_MM, FEED_SHIFT_DOTS, drawLabel, ensureFont, fontsFor, getPreset, type LabelTemplate } from "@/lib/label";
+import {
+  DEFAULT_CALIBRATION,
+  DOTS_PER_MM,
+  HEAD_DOTS,
+  composeForPrinter,
+  drawAlignmentTest,
+  drawLabel,
+  ensureFont,
+  fontsFor,
+  getPreset,
+  type LabelTemplate,
+} from "@/lib/label";
 
 /** Loads every web font the current design uses before drawing. */
 const loadFonts = (tpl: LabelTemplate) => Promise.all(Object.values(fontsFor(tpl)).map(ensureFont));
 
 export interface LabelPreviewHandle {
-  /** Renders a fresh label (with the current date and lot) onto an offscreen canvas for printing. */
-  renderForPrint: () => Promise<HTMLCanvasElement>;
+  /**
+   * Renders a fresh label (with the current date and lot) and returns the image to SEND to the printer:
+   * full printhead width, sticker centred, calibration applied.
+   */
+  renderForPrint: (headDots?: number) => Promise<HTMLCanvasElement>;
+  /** Alignment test image for the current paper, ready to send to the printer. */
+  renderAlignmentTest: (headDots?: number) => HTMLCanvasElement;
 }
 
 interface Props {
@@ -23,6 +39,8 @@ export const LabelPreview = forwardRef<LabelPreviewHandle, Props>(function Label
   const preset = getPreset(tpl.preset);
   const pw = preset.paperWMm * DOTS_PER_MM;
   const ph = preset.paperHMm * DOTS_PER_MM;
+  const cal = (tpl.calibration ?? DEFAULT_CALIBRATION)[preset.paper] ?? { x: 0, y: 0 };
+  const calX = cal.x, calY = cal.y;
 
   useEffect(() => {
     if (!now) return;
@@ -34,18 +52,24 @@ export const LabelPreview = forwardRef<LabelPreviewHandle, Props>(function Label
   }, [tpl, now, pw, ph]);
 
   useImperativeHandle(ref, () => ({
-    renderForPrint: async () => {
+    renderForPrint: async (headDots = HEAD_DOTS) => {
       await loadFonts(tpl);
       const at = new Date(); // the lot code is made from this exact moment
       const c = document.createElement("canvas");
       c.width = pw;
       c.height = ph;
-      // no guide outline on the printed canvas; shift compensates the printer's start offset
-      drawLabel(c, tpl, at, { shiftX: FEED_SHIFT_DOTS[preset.paper] });
+      drawLabel(c, tpl, at); // no guide outline on the printed image
       if (canvasRef.current) drawLabel(canvasRef.current, tpl, at, { guide: true });
-      return c;
+      return composeForPrinter(c, { x: calX, y: calY }, headDots);
     },
-  }), [tpl, pw, ph, preset.paper]);
+    renderAlignmentTest: (headDots = HEAD_DOTS) => {
+      const c = document.createElement("canvas");
+      c.width = pw;
+      c.height = ph;
+      drawAlignmentTest(c);
+      return composeForPrinter(c, { x: calX, y: calY }, headDots);
+    },
+  }), [tpl, pw, ph, calX, calY]);
 
   return (
     <div className="grid place-items-center rounded-xl bg-[repeating-conic-gradient(#eeece6_0%_25%,#f7f6f2_0%_50%)] bg-[length:16px_16px] p-3 sm:p-5">

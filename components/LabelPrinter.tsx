@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { LabelPreview, type LabelPreviewHandle } from "@/components/LabelPreview";
 import { TemplateForm } from "@/components/TemplateForm";
 import { useNow, useTemplate } from "@/hooks/useTemplate";
-import { buildLot, expiryDate, formatDate, getPreset } from "@/lib/label";
+import { DEFAULT_CALIBRATION, HEAD_DOTS, buildLot, expiryDate, formatDate, getPreset } from "@/lib/label";
 import { connectPrinter, isWebBluetoothSupported, printCanvas, type PrinterClient } from "@/lib/printer";
 
 type Msg = { text: string; tone?: "ok" | "err" } | null;
@@ -29,6 +29,16 @@ export function LabelPrinter() {
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- feature detection is client-only
   useEffect(() => setSupported(isWebBluetoothSupported()), []);
+
+  // Printer alignment for the paper of the selected label type (mm)
+  const calibration = tpl.calibration ?? DEFAULT_CALIBRATION;
+  const cal = calibration[preset.paper] ?? { x: 0, y: 0 };
+  const setCal = (axis: "x" | "y", v: number) => {
+    const next = Math.round(Math.max(-8, Math.min(8, v)) * 2) / 2; // 0.5 mm steps, ±8 mm
+    update("calibration", { ...calibration, [preset.paper]: { ...cal, [axis]: next } });
+  };
+  /** Printhead width reported by the connected printer (B1 = 384 dots). */
+  const headDots = () => clientRef.current?.getModelMetadata()?.printheadPixels ?? HEAD_DOTS;
 
   const clamp = (v: number) => Math.min(MAX_QTY, Math.max(1, Number.isFinite(v) ? Math.floor(v) : 1));
 
@@ -64,7 +74,7 @@ export function LabelPrinter() {
     setMsg({ text: `Printing ${n} label${n > 1 ? "s" : ""}…` });
     try {
       // Fresh render at the moment of printing, so the date and the lot code are made from this exact moment
-      await printCanvas(client, await preview.renderForPrint(), n, tpl.density, preset.paper);
+      await printCanvas(client, await preview.renderForPrint(headDots()), n, tpl.density, preset.paper);
       setProgress(100);
       setMsg({ text: `Done · ${n} label${n > 1 ? "s" : ""} printed`, tone: "ok" });
     } catch (e) {
@@ -74,6 +84,22 @@ export function LabelPrinter() {
       setTimeout(() => setProgress(null), 1500);
     }
   }, [printing, qty, tpl.density, preset.paper]);
+
+  const onAlignmentTest = useCallback(async () => {
+    const client = clientRef.current;
+    const preview = previewRef.current;
+    if (!client || !preview || printing) return;
+    setPrinting(true);
+    setMsg({ text: "Printing alignment test…" });
+    try {
+      await printCanvas(client, preview.renderAlignmentTest(headDots()), 1, tpl.density, preset.paper);
+      setMsg({ text: "Test printed. If the frame isn't even on all sides, adjust the alignment below and test again.", tone: "ok" });
+    } catch (e) {
+      setMsg({ text: `Print failed: ${e instanceof Error ? e.message : String(e)}`, tone: "err" });
+    } finally {
+      setPrinting(false);
+    }
+  }, [printing, tpl.density, preset.paper]);
 
   const dotCls = conn === "connected" ? "bg-ok" : conn === "connecting" ? "bg-warn" : "bg-neutral-400";
   const statusText =
@@ -140,6 +166,43 @@ export function LabelPrinter() {
               <div className="h-full bg-accent transition-[width] duration-200" style={{ width: `${progress}%` }} />
             </div>
           )}
+          <details className="group mt-4 rounded-xl border border-line bg-page/60 px-3.5 py-2.5">
+            <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-semibold">
+              Printer alignment
+              <span className="text-xs font-normal text-muted">
+                {preset.paper === "transparent" ? "Transparent" : "White sticker"} · {cal.x > 0 ? "+" : ""}{cal.x} / {cal.y > 0 ? "+" : ""}{cal.y} mm
+              </span>
+            </summary>
+            <p className="mt-2 text-xs text-muted">
+              Print the test once. The frame should be the same distance from every edge of the sticker.
+              If it isn&apos;t, move it here and test again. Saved per paper type.
+            </p>
+            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {([["x", "Left / right", "←", "→"], ["y", "Up / down", "↑", "↓"]] as const).map(([axis, label, minus, plus]) => (
+                <div key={axis} className="flex items-center justify-between gap-2 rounded-lg border border-line bg-white px-2 py-1.5">
+                  <span className="text-xs font-semibold text-muted">{label}</span>
+                  <div className="flex items-center gap-1">
+                    <button type="button" aria-label={`${label} minus`} onClick={() => setCal(axis, cal[axis] - 0.5)}
+                      className="size-8 rounded-md bg-page text-base hover:bg-[#eeece6]">{minus}</button>
+                    <span className="w-16 whitespace-nowrap text-center text-sm font-semibold tabular-nums">{cal[axis] > 0 ? "+" : ""}{cal[axis]} mm</span>
+                    <button type="button" aria-label={`${label} plus`} onClick={() => setCal(axis, cal[axis] + 0.5)}
+                      className="size-8 rounded-md bg-page text-base hover:bg-[#eeece6]">{plus}</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-2.5 flex gap-2">
+              <button type="button" onClick={onAlignmentTest} disabled={conn !== "connected" || printing}
+                className="h-10 flex-1 rounded-lg border border-line bg-white text-sm font-semibold hover:bg-[#f6f5f1] disabled:cursor-not-allowed disabled:opacity-45">
+                Print alignment test
+              </button>
+              <button type="button" onClick={() => update("calibration", { ...calibration, [preset.paper]: { x: 0, y: 0 } })}
+                className="h-10 rounded-lg px-3 text-sm text-muted hover:text-ink">
+                Reset
+              </button>
+            </div>
+          </details>
+
           {msg && <p className={`mt-2.5 text-sm ${msg?.tone === "err" ? "text-err" : msg?.tone === "ok" ? "text-ok" : ""}`}>
             {msg.text}
           </p>}

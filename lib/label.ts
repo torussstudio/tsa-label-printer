@@ -266,52 +266,71 @@ function cellText(
   }
 }
 
-/** Hourglass as in the reference: square bulbs, crossed glass, sand in the top bulb. */
-function drawHourglass(ctx: CanvasRenderingContext2D, cx: number, cy: number, h: number) {
-  const w = h * 0.62, hw = w / 2;
+/**
+ * Hourglass as in the reference artwork:
+ *   ╭──────╮   top bulb: straight sides (top quarter), then the glass narrows to the centre
+ *   │ ▼▼▼▼ │   sand: filled shield with a rounded point
+ *    ╲    ╱
+ *      ╳       the two sides cross in the middle
+ *    ╱    ╲
+ *   │      │   bottom bulb: mirror of the top, empty
+ *   ╰──────╯
+ * One even outline everywhere (no thick base). The outline is at least 2 PRINTER DOTS wide, because a
+ * thinner diagonal becomes a staircase of pixels that only touch at their corners, and a thermal head
+ * prints that as a broken, dotted line.
+ */
+function drawHourglass(ctx: CanvasRenderingContext2D, cx: number, cy: number, h: number, res = 1) {
+  const w = h * 0.58, hw = w / 2;          // reference proportions: width ≈ 0.58 × height
   const top = cy - h / 2, bot = cy + h / 2;
-  const bulb = h * 0.22, r = h * 0.05;
-  // Stroke width in PRINTER DOTS, not canvas units: at least 3 dots. Thinner diagonals turn into a
-  // staircase of pixels that only touch at their corners, and a thermal head prints those as a broken,
-  // dotted line (the X and the bottom bulb were coming out broken).
-  const scale = Math.abs(ctx.getTransform().a) || 1;
-  ctx.lineWidth = Math.max(3 / scale, h / 22);
+  const side = h * 0.25;                    // straight part of each bulb
+  const r = h * 0.035;                      // small rounded corners
+  // canvas units per printer dot (the current transform includes the preview resolution `res`)
+  const scale = (Math.abs(ctx.getTransform().a) || 1) / res;
+  ctx.lineWidth = Math.max(2 / scale, h * 0.025);
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
-  // outline: top bulb → crossing diagonals → bottom bulb
+
+  // Outline: one closed path, the two diagonals cross at the centre
   ctx.beginPath();
-  ctx.moveTo(cx - hw, top + bulb);
+  ctx.moveTo(cx - hw, top + side);
   ctx.lineTo(cx - hw, top + r);
   ctx.quadraticCurveTo(cx - hw, top, cx - hw + r, top);
   ctx.lineTo(cx + hw - r, top);
   ctx.quadraticCurveTo(cx + hw, top, cx + hw, top + r);
-  ctx.lineTo(cx + hw, top + bulb);
-  ctx.lineTo(cx - hw, bot - bulb);
+  ctx.lineTo(cx + hw, top + side);
+  ctx.lineTo(cx - hw, bot - side);          // diagonal ↙ through the centre
   ctx.lineTo(cx - hw, bot - r);
   ctx.quadraticCurveTo(cx - hw, bot, cx - hw + r, bot);
   ctx.lineTo(cx + hw - r, bot);
   ctx.quadraticCurveTo(cx + hw, bot, cx + hw, bot - r);
-  ctx.lineTo(cx + hw, bot - bulb);
-  ctx.lineTo(cx - hw, top + bulb);
+  ctx.lineTo(cx + hw, bot - side);
+  ctx.closePath();                          // diagonal ↖ back to the start, through the centre
   ctx.stroke();
-  // thicker base
-  ctx.fillRect(cx - hw + r, bot - ctx.lineWidth * 0.5, w - r * 2, ctx.lineWidth * 1.4);
-  // sand: shield shape in the top bulb
-  const s = h * 0.07, sw = hw - s;
+
+  // Sand: shield in the top bulb (inset 17 % of the width, from 9 % to 37 % of the height)
+  const sx = w * 0.33, sTop = top + h * 0.095, sSide = top + h * 0.2, sTip = top + h * 0.37;
   ctx.beginPath();
-  ctx.moveTo(cx - sw, top + s);
-  ctx.lineTo(cx + sw, top + s);
-  ctx.lineTo(cx + sw, top + bulb - s * 0.3);
-  ctx.lineTo(cx + sw * 0.35, top + bulb + s * 1.3);
-  ctx.lineTo(cx - sw * 0.35, top + bulb + s * 1.3);
-  ctx.lineTo(cx - sw, top + bulb - s * 0.3);
+  ctx.moveTo(cx - sx, sTop);
+  ctx.lineTo(cx + sx, sTop);
+  ctx.lineTo(cx + sx, sSide);
+  ctx.lineTo(cx, sTip);
+  ctx.lineTo(cx - sx, sSide);
   ctx.closePath();
   ctx.fill();
+  ctx.lineWidth = Math.max(1.5 / scale, h * 0.02); // rounds the shield's corners, like the reference
+  ctx.stroke();
 }
 
 export interface DrawOptions {
   /** Preview only: faint dashed outline of the design area. Never set this when printing. */
   guide?: boolean;
+  /**
+   * Canvas pixels per printer dot (default 1 = exactly the printer image).
+   * The smooth screen preview uses e.g. 4, on a canvas 4× the paper size in dots.
+   */
+  res?: number;
+  /** Preview only: keep anti-aliased edges (skip the black/white pass). Never set this when printing. */
+  smooth?: boolean;
 }
 
 /**
@@ -333,8 +352,10 @@ export function drawLabel(canvas: HTMLCanvasElement, tpl: LabelTemplate, now: Da
   if (!ctx) return;
   const preset = getPreset(tpl.preset);
 
-  // Whole paper (canvas)
-  const PW = canvas.width, PH = canvas.height;
+  // Everything below is measured in PRINTER DOTS; `res` canvas pixels = 1 dot
+  const res = Math.max(1, opts.res ?? 1);
+  // Whole paper (canvas), in dots
+  const PW = canvas.width / res, PH = canvas.height / res;
   // Design area, centred on the paper (whole dots)
   const W = Math.min(PW, Math.round(preset.wMm * DOTS_PER_MM));
   const H = Math.min(PH, Math.round(preset.hMm * DOTS_PER_MM));
@@ -343,7 +364,7 @@ export function drawLabel(canvas: HTMLCanvasElement, tpl: LabelTemplate, now: Da
 
   // Font size factor relative to the 40×30 reference label
   const fs = Math.min(W / LABEL_W, H / LABEL_H);
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.setTransform(res, 0, 0, res, 0, 0);
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, PW, PH);
 
@@ -363,13 +384,13 @@ export function drawLabel(canvas: HTMLCanvasElement, tpl: LabelTemplate, now: Da
   ctx.fillStyle = "#000";
   ctx.strokeStyle = "#000";
 
-  // Table lines are drawn in device pixels (no transform) and snapped to whole dots,
+  // Table lines are drawn in dots (no design transform) and snapped to whole dots,
   // so a 1-dot line prints as exactly one crisp row/column of dots.
   const lw = Math.max(1, Math.min(3, Math.round(tpl.lineWidth)));
   const sx = (x: number) => Math.round(ox + W / 2 + tpl.offsetX + (x - W / 2) * k);
   const sy = (y: number) => Math.round(oy + H / 2 + tpl.offsetY + (y - H / 2) * k);
   ctx.save();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.setTransform(res, 0, 0, res, 0, 0);
   const hLine = (x0: number, x1: number, y: number) => ctx.fillRect(sx(x0), sy(y), sx(x1) - sx(x0) + lw, lw);
   const vLine = (x: number, y0: number, y1: number) => ctx.fillRect(sx(x), sy(y0), lw, sy(y1) - sy(y0) + lw);
   hLine(X0, X3, Y0);   // outer top
@@ -398,27 +419,29 @@ export function drawLabel(canvas: HTMLCanvasElement, tpl: LabelTemplate, now: Da
   cellText(ctx, f.value, lot, X2, Y2, X3, Y3, 22 * fs);
 
   // Left cell: hourglass image
-  if (handmade || tpl.showIcon) drawHourglass(ctx, (X0 + X1) / 2, (Y1 + Y3) / 2, (Y3 - Y1) * 0.78);
+  if (handmade || tpl.showIcon) drawHourglass(ctx, (X0 + X1) / 2, (Y1 + Y3) / 2, (Y3 - Y1) * 0.78, res);
 
-  // Thermal head prints only pure black or white
+  // Thermal head prints only pure black or white (skipped only for the smooth screen preview)
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  const img = ctx.getImageData(0, 0, PW, PH);
-  const d = img.data;
-  for (let i = 0; i < d.length; i += 4) {
-    const v = d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
-    const b = v < 150 ? 0 : 255;
-    d[i] = d[i + 1] = d[i + 2] = b;
-    d[i + 3] = 255;
+  if (!opts.smooth) {
+    const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const v = d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
+      const b = v < 150 ? 0 : 255;
+      d[i] = d[i + 1] = d[i + 2] = b;
+      d[i + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
   }
-  ctx.putImageData(img, 0, 0);
 
   // Preview-only guide: drawn AFTER the black/white pass so it never reaches the printer
   if (opts.guide && (W < PW || H < PH)) {
     ctx.save();
     ctx.strokeStyle = "rgba(120, 120, 120, 0.7)";
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 4]);
-    ctx.strokeRect(ox + 0.5, oy + 0.5, W - 1, H - 1);
+    ctx.lineWidth = res;
+    ctx.setLineDash([4 * res, 4 * res]);
+    ctx.strokeRect(ox * res + res / 2, oy * res + res / 2, W * res - res, H * res - res);
     ctx.restore();
   }
 }

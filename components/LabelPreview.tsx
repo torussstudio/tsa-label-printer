@@ -152,6 +152,7 @@ import {
   ensureFont,
   fontsFor,
   getPreset,
+  type LabelData,
   type LabelTemplate,
 } from "@/lib/label";
 
@@ -174,18 +175,20 @@ export interface LabelPreviewHandle {
   /**
    * Renders a fresh label (with the current date and lot) and returns the image to SEND to the printer:
    * full printhead width, sticker centred, calibration applied.
+   * `data` comes from the lot the server gave this print job: its day is the printed "made" date.
    */
-  renderForPrint: (headDots?: number) => Promise<HTMLCanvasElement>;
+  renderForPrint: (data: LabelData, headDots?: number) => Promise<HTMLCanvasElement>;
   /** Alignment test image for the current paper, ready to send to the printer. */
   renderAlignmentTest: (headDots?: number) => HTMLCanvasElement;
 }
 
 interface Props {
   tpl: LabelTemplate;
-  now: Date | null;
+  /** What the preview shows (null until the clock is known). Keep it memoized: a new object redraws. */
+  data: LabelData | null;
 }
 
-export const LabelPreview = forwardRef<LabelPreviewHandle, Props>(function LabelPreview({ tpl, now }, ref) {
+export const LabelPreview = forwardRef<LabelPreviewHandle, Props>(function LabelPreview({ tpl, data }, ref) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   // Preview mode, remembered per browser (falls back to smooth if storage is unavailable)
@@ -210,25 +213,29 @@ export const LabelPreview = forwardRef<LabelPreviewHandle, Props>(function Label
   const calX = cal.x, calY = cal.y;
 
   useEffect(() => {
-    if (!now) return;
+    if (!data) {
+      // Nothing to show (e.g. no day picked yet): blank, rather than an old label
+      const c = canvasRef.current;
+      c?.getContext("2d")?.clearRect(0, 0, c.width, c.height);
+      return;
+    }
     let cancelled = false;
     loadFonts(tpl).then(() => {
-      if (!cancelled && canvasRef.current) drawLabel(canvasRef.current, tpl, now, { guide: true, res, smooth });
+      if (!cancelled && canvasRef.current) drawLabel(canvasRef.current, tpl, data, { guide: true, res, smooth });
     });
     return () => { cancelled = true; };
-  }, [tpl, now, pw, ph, res, smooth]);
+  }, [tpl, data, pw, ph, res, smooth]);
 
   useImperativeHandle(ref, () => ({
-    renderForPrint: async (headDots = HEAD_DOTS) => {
+    renderForPrint: async (printData, headDots = HEAD_DOTS) => {
       await loadFonts(tpl);
-      const at = new Date(); // the lot code is made from this exact moment
       // Printed image: always 1 canvas pixel per printer dot, black/white, no guide outline
       const c = document.createElement("canvas");
       c.width = pw;
       c.height = ph;
-      drawLabel(c, tpl, at);
+      drawLabel(c, tpl, printData);
       // Keep the on-screen preview in step with what was just printed (same date/lot)
-      if (canvasRef.current) drawLabel(canvasRef.current, tpl, at, { guide: true, res, smooth });
+      if (canvasRef.current) drawLabel(canvasRef.current, tpl, printData, { guide: true, res, smooth });
       return composeForPrinter(c, { x: calX, y: calY }, headDots);
     },
     renderAlignmentTest: (headDots = HEAD_DOTS) => {

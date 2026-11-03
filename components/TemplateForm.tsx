@@ -270,7 +270,7 @@
 "use client";
 
 /* eslint-disable @typescript-eslint/no-unused-vars -- FONTS, FontKey, LabelPaper and Check are used by the commented-out options below */
-import { DATE_FORMATS, FONTS, PRESETS, SHELF_LIFE, getPreset, type DateFormat, type FontKey, type LabelPaper, type LabelPreset, type LabelTemplate } from "@/lib/label";
+import { DATE_FORMATS, FONTS, PRESETS, getPreset, type DateFormat, type FontKey, type LabelPaper, type LabelPreset, type LabelTemplate } from "@/lib/label";
 
 /** Set to true to show the Fonts dropdowns again (handmade design only). */
 const SHOW_FONTS = false;
@@ -468,7 +468,7 @@ export function TemplateForm({ tpl, update }: Props) {
           </div>
           <p className="mt-3 inline-flex items-center gap-2 rounded-full bg-page px-3 py-1.5 text-xs text-muted">
             <span className="size-1.5 rounded-full bg-accent" />
-            Expiry is fixed: made date + {SHELF_LIFE.months} months {SHELF_LIFE.days} days
+            Expiry comes from each product&apos;s shelf life (Products page)
           </p>
         </Group>
       </div>

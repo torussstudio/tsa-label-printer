@@ -1,10 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { DEFAULT_TEMPLATE, type LabelTemplate } from "@/lib/label";
+import { DEFAULT_TEMPLATE, type LabelTemplate, type PresetId } from "@/lib/label";
 
 /** State persisted in localStorage (per browser), merged over `defaults`. */
-function usePersisted<T extends object>(key: string, defaults: T) {
+export function usePersisted<T extends object>(key: string, defaults: T) {
   const [value, setValue] = useState<T>(defaults);
   const [loaded, setLoaded] = useState(false);
 
@@ -50,4 +50,19 @@ export function useNow(ms = 15000) {
     return () => { clearInterval(id); document.removeEventListener("visibilitychange", onVis); };
   }, [ms]);
   return now;
+}
+/** A saved product + label type + quantity combination, set up with one tap. */
+export interface QuickJob {
+  id: string;
+  productId: number;
+  preset: PresetId;
+  qty: number;
+}
+
+/** Print page choices kept per device: the selected product and the quick jobs. */
+export function usePrintSettings() {
+  const { value, update } = usePersisted<{ productId: number | null; quickJobs: QuickJob[] }>(
+    "tsa-print-settings-v1", { productId: null, quickJobs: [] },
+  );
+  return { settings: value, update };
 }

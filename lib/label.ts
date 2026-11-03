@@ -186,48 +186,43 @@ export function addDays(d: Date, days: number): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate() + days);
 }
 
-/** Expiry date: made date + 11 months, then + 12 days. */
-export function expiryDate(made: Date): Date {
-  return addDays(addMonths(made, SHELF_LIFE.months), SHELF_LIFE.days);
+export type ShelfLife = { months: number; days: number };
+
+/** Expiry date: made date + the product's months, then + its days (default 11 months + 12 days). */
+export function expiryDate(made: Date, shelf: ShelfLife = SHELF_LIFE): Date {
+  return addDays(addMonths(made, shelf.months), shelf.days);
+}
+
+/** A day as "YYYY-MM-DD" (local calendar date, as stored in Postgres). */
+export const toDay = (d: Date) => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+
+/** "YYYY-MM-DD" → local Date at noon (noon, so no time zone shift can move it to another day). */
+export function parseDay(day: string): Date {
+  const [y, m, d] = day.split("-").map(Number);
+  return new Date(y, m - 1, d, 12);
 }
 
 // ---------------------------------------------------------------------------
-// Lot code: no server or database needed.
+// Lot code: one per product per day, stored in the database (see lib/db.ts).
 //
-// The code is made from the exact print time (milliseconds), then scrambled so it
-// looks random. The scramble is reversible, so two different print times can never
-// give the same code. 30 bits of milliseconds = ~12.4 days, so within any day (in any
-// time zone, Central European time included) every print gets a different code, on
-// every laptop. Only two prints in the very same millisecond could match.
+// The first print of a product on a day makes a random 6-character code; every
+// other print of that product that day, on any device, reuses it.
 // ---------------------------------------------------------------------------
 
 // 32 characters, without 0/O and 1/I/L, so the printed code is easy to read
-const LOT_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
-const LOT_MASK = 0x3fffffff; // 30 bits
-const LOT_LENGTH = 6;        // 6 × 5 bits = 30 bits
+export const LOT_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+export const LOT_LENGTH = 6;
+/** Most labels in one print job. */
+export const MAX_QTY = 999;
+/** Shown in the preview until today's code has loaded from the database. */
+const LOT_PLACEHOLDER = "-".repeat(LOT_LENGTH);
 
-/** Reversible 30-bit mixer: different inputs always give different outputs. */
-function scramble30(n: number): number {
-  let x = n & LOT_MASK; // keeps the low 30 bits (works on large millisecond values too)
-  x ^= x >>> 15;
-  x = Math.imul(x, 0x2c1b3c6d) & LOT_MASK;
-  x ^= x >>> 13;
-  x = Math.imul(x, 0x297a2d39) & LOT_MASK;
-  x ^= x >>> 16;
-  return x;
-}
-
-/** 6 letters/numbers from the print time, e.g. "K7M2QX". */
-export function lotCode(at: Date): string {
-  const x = scramble30(at.getTime());
-  let s = "";
-  for (let i = 0; i < LOT_LENGTH; i++) s += LOT_ALPHABET[(x >>> (5 * i)) & 31];
-  return s;
-}
-
-export function buildLot(tpl: LabelTemplate, now: Date): string {
-  const yy = String(now.getFullYear()).slice(-2);
-  return `${tpl.lotPrefix}${tpl.lotWithYear ? yy : ""}${lotCode(now)}`.toUpperCase();
+/** Full lot as printed: prefix + YY (optional) + the day's code, e.g. "TSA26K7M2QX". */
+export function buildLot(
+  tpl: Pick<LabelTemplate, "lotPrefix" | "lotWithYear">, made: Date, code?: string | null,
+): string {
+  const yy = String(made.getFullYear()).slice(-2);
+  return `${tpl.lotPrefix}${tpl.lotWithYear ? yy : ""}${code ?? LOT_PLACEHOLDER}`.toUpperCase();
 }
 
 /** Makes sure the chosen web font is downloaded before drawing on canvas. */
@@ -347,7 +342,15 @@ export interface DrawOptions {
  * is centred on the paper, and the layout is drawn proportionally inside that area.
  * Text sizes follow the smaller of the two scale factors of the design area.
  */
-export function drawLabel(canvas: HTMLCanvasElement, tpl: LabelTemplate, now: Date, opts: DrawOptions = {}) {
+/** What changes from label to label: the made day, the lot's code and the product's shelf life. */
+export interface LabelData {
+  made: Date;
+  lotCode: string | null; // null = not made yet (first print of the day makes it)
+  shelf?: ShelfLife;
+}
+
+export function drawLabel(canvas: HTMLCanvasElement, tpl: LabelTemplate, data: LabelData, opts: DrawOptions = {}) {
+  const { made: now, lotCode, shelf } = data;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) return;
   const preset = getPreset(tpl.preset);
@@ -404,8 +407,8 @@ export function drawLabel(canvas: HTMLCanvasElement, tpl: LabelTemplate, now: Da
   ctx.restore();
 
   const made = formatDate(now, tpl.format);
-  const exp = formatDate(expiryDate(now), tpl.format);
-  const lot = buildLot(tpl, now);
+  const exp = formatDate(expiryDate(now, shelf), tpl.format);
+  const lot = buildLot(tpl, now, lotCode);
 
   const handmade = preset.design === "handmade";
   const f = fontsFor(tpl);

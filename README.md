@@ -9,9 +9,33 @@ Label: **40×30 mm sticker** (320×240 dots at 203 dpi, 4:3).
 ├───────────┼────────┬──────────────┤
 │           │  EXP:  │   22.08.27   │  ← today + shelf life (months)
 │ hourglass ├────────┼──────────────┤
-│           │ LOTE:  │   TSA26057   │  ← prefix + YY + batch (placeholder, numbering not final)
+│           │ LOTE:  │ TSA26K7M2QX  │  ← prefix + YY + the day's random code (one lot per day)
 └───────────┴────────┴──────────────┘
 ```
+
+## Database (Supabase)
+
+Lots and print counts are stored in Postgres (Supabase).
+
+1. Supabase → SQL editor → run [`db/schema.sql`](db/schema.sql). Run it again after updating the app:
+   it is safe to re-run and upgrades an older database.
+2. Copy `.env.example` to `.env.local` and set `DATABASE_URL` (Supabase → Connect → Transaction pooler).
+   Set the same variables in your host (e.g. Vercel → Settings → Environment Variables).
+
+- **One lot per product per day:** the first print of a product on a day (Spain time, `LOT_TIMEZONE`) makes a
+  random 6-character code; every print of that product that day, on any device, reuses it.
+  The label's "made" date is the lot's day.
+- **Products** (`/products`): name, shelf life (expiry = made + months + days) and an optional daily target.
+- **Earlier day:** print an earlier day's lot (e.g. made yesterday, labelled today); a reason is required and saved.
+- **Counting:** each Print press is saved as a job (`pending` → `printed` / `failed`). Only `printed` jobs count.
+  Misprints are recorded per job with **Mark wasted**; good = printed − wasted.
+- **Print page:** today's jobs from every device, daily target progress, and quick jobs
+  (product + label type + quantity saved per device).
+- **Lots** (`/lots`): search by lot code or by a raw material's supplier batch; each lot page lists its print jobs
+  and the material batches used in it.
+- **Reports** (`/reports`): good labels per day or month, by product, with a chart, this month vs last month,
+  and a CSV download of every print job in the range.
+- Printing needs the database: if it can't be reached, the print is stopped with an error.
 
 ## Run
 
@@ -27,18 +51,28 @@ Deploy anywhere that serves **HTTPS** (Vercel, Netlify, your own server). Web Bl
 
 1. **Connect printer** → pick `B1-xxxx` in the browser popup.
 2. Template (once): labels, date format, shelf life, lot prefix, font, label paper, darkness, position nudge, table size. Saved in localStorage.
-3. Each batch: set **Batch number**, set **quantity**, **Print**.
+3. Each batch: pick the **product**, set **quantity**, **Print**.
 
 ## Structure
 
 ```
-app/                 layout (fonts + globals.css), page
+app/                 layout (fonts + globals.css), print page
+  lots/, lots/[id]/  lot search, lot detail (prints + raw materials)
+  products/          products (shelf life, daily target)
+  reports/           day/month totals page
+  api/               products, lots, lots/day, lots/[id]/materials, prints, stats (route handlers)
 components/
-  LabelPrinter.tsx   connection, batch, quantity, print flow
+  LabelPrinter.tsx   connection, product, day, quick jobs, quantity, print flow
+  TodayPrints.tsx    today's jobs + mark wasted
   LabelPreview.tsx   canvas preview + renderForPrint()
   TemplateForm.tsx   template editor
-hooks/useTemplate.ts localStorage state + live clock
+  LotSearch.tsx, LotDetail.tsx, Products.tsx, Reports.tsx, Nav.tsx
+db/schema.sql        Postgres tables (products, lots, prints, lot_materials)
+hooks/useTemplate.ts localStorage state (template, print settings) + live clock
 lib/label.ts         geometry (320×240 @ 203 dpi), dates, expiry, lot, drawLabel()
+lib/db.ts            Postgres pool + queries (server only)
+lib/http.ts          route handler helpers: errors, input checks
+lib/api.ts           browser calls to /api
 lib/printer.ts       NiimBlueLib wrapper (lazy-imported, client only)
 ```
 

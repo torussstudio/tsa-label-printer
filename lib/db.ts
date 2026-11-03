@@ -43,7 +43,7 @@ export interface Product {
   name: string;
   shelfMonths: number;
   shelfDays: number;
-  dailyTarget: number | null; // good labels per day
+  dailyTarget: number | null; // labels per day
   active: boolean;
 }
 
@@ -168,16 +168,6 @@ export async function finishPrint(id: number, status: "printed" | "failed") {
   return { ok: true };
 }
 
-/** Sets how many labels of a finished job were misprinted (0 = none). */
-export async function setWasted(id: number, wasted: number) {
-  const [row] = await query<{ quantity: number; status: string }>(`SELECT quantity, status FROM prints WHERE id = $1`, [id]);
-  if (!row) throw new HttpError(404, "Print job not found");
-  if (row.status !== "printed") throw new HttpError(400, "Only finished prints can have wasted labels");
-  if (wasted > row.quantity) throw new HttpError(400, `Only ${row.quantity} labels were printed in this job`);
-  await query(`UPDATE prints SET wasted = $2 WHERE id = $1`, [id, wasted]);
-  return { ok: true };
-}
-
 export interface PrintJob {
   id: number;
   lotId: number;
@@ -188,7 +178,6 @@ export interface PrintJob {
   productName: string | null;
   preset: string;
   quantity: number;
-  wasted: number;
   status: PrintStatus;
   note: string | null;
   printedAt: string;    // ISO time the job was started
@@ -197,7 +186,7 @@ export interface PrintJob {
 const PRINT_SELECT = `
   SELECT p.id, l.id AS "lotId", p.lot, to_char(l.lot_date, 'YYYY-MM-DD') AS "lotDate",
          to_char(p.exp_date, 'YYYY-MM-DD') AS "expDate", l.product_id AS "productId", pr.name AS "productName",
-         p.preset, p.quantity, p.wasted, p.status, p.note,
+         p.preset, p.quantity, p.status, p.note,
          to_char(p.printed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS "printedAt"
   FROM prints p JOIN lots l ON l.id = p.lot_id LEFT JOIN products pr ON pr.id = l.product_id`;
 
@@ -228,7 +217,6 @@ export interface LotSummary extends Lot {
   lot: string | null;     // full code as printed (null if never printed)
   expDate: string | null;
   printed: number;        // labels in finished jobs
-  wasted: number;
   jobs: number;
   materials: number;      // raw material batches recorded
   matched: string | null; // search hit in a material batch, e.g. "Hyaluronic acid · HA-2231"
@@ -241,7 +229,6 @@ function lotSummarySql(where: string) {
            (SELECT x.lot FROM prints x WHERE x.lot_id = l.id ORDER BY x.id LIMIT 1) AS lot,
            (SELECT to_char(MAX(x.exp_date), 'YYYY-MM-DD') FROM prints x WHERE x.lot_id = l.id) AS "expDate",
            COALESCE(SUM(p.quantity) FILTER (WHERE p.status = 'printed'), 0)::int AS printed,
-           COALESCE(SUM(p.wasted) FILTER (WHERE p.status = 'printed'), 0)::int AS wasted,
            (COUNT(p.id) FILTER (WHERE p.status = 'printed'))::int AS jobs,
            (SELECT COUNT(*) FROM lot_materials m WHERE m.lot_id = l.id)::int AS materials,
            (SELECT string_agg(m.material || ' · ' || m.batch, ', ') FROM lot_materials m
@@ -251,16 +238,50 @@ function lotSummarySql(where: string) {
     GROUP BY l.id, pr.name`;
 }
 
-/** Lots whose code, printed lot or a material batch contains `q`; the latest 50 lots when `q` is empty. */
-export function searchLots(q: string) {
-  const like = q ? `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%` : "";
-  return query<LotSummary>(
-    `${lotSummarySql(`$1 = '' OR l.code ILIKE $1
-       OR EXISTS (SELECT 1 FROM prints x WHERE x.lot_id = l.id AND x.lot ILIKE $1)
-       OR EXISTS (SELECT 1 FROM lot_materials m WHERE m.lot_id = l.id AND m.batch ILIKE $1)`)}
-     ORDER BY l.lot_date DESC, l.id DESC LIMIT 50`,
-    [like],
-  );
+export interface LotSearch {
+  q: string;
+  from: string | null; // lot (made) day range, inclusive; null = open
+  to: string | null;
+}
+
+/** Labels printed, in total and per product, for every lot the search matches (not only the 50 listed). */
+export interface LotTotals {
+  lots: number;    // lots with at least one finished print
+  printed: number;
+  products: { name: string; lots: number; printed: number }[];
+}
+
+const LOT_SEARCH_LIMIT = 50;
+
+// $1 = text (ILIKE pattern or ''), $2/$3 = day range
+const LOT_FILTER = `($1 = '' OR l.code ILIKE $1
+    OR EXISTS (SELECT 1 FROM prints x WHERE x.lot_id = l.id AND x.lot ILIKE $1)
+    OR EXISTS (SELECT 1 FROM lot_materials m WHERE m.lot_id = l.id AND m.batch ILIKE $1))
+  AND ($2::date IS NULL OR l.lot_date >= $2) AND ($3::date IS NULL OR l.lot_date <= $3)`;
+
+/**
+ * Lots made in the day range whose code, printed lot or a material batch contains `q`
+ * (the latest 50), with totals over every matching lot.
+ */
+export async function searchLots({ q, from, to }: LotSearch) {
+  const params = [q ? `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%` : "", from, to];
+  const [lots, byProduct] = await Promise.all([
+    query<LotSummary>(`${lotSummarySql(LOT_FILTER)} ORDER BY l.lot_date DESC, l.id DESC LIMIT ${LOT_SEARCH_LIMIT}`, params),
+    query<{ name: string; lots: number; printed: number }>(
+      `SELECT COALESCE(pr.name, 'No product') AS name, COUNT(DISTINCT l.id)::int AS lots,
+              SUM(p.quantity)::int AS printed
+       FROM lots l JOIN prints p ON p.lot_id = l.id AND p.status = 'printed' LEFT JOIN products pr ON pr.id = l.product_id
+       WHERE ${LOT_FILTER}
+       GROUP BY 1 ORDER BY 1`,
+      params,
+    ),
+  ]);
+  const totals: LotTotals = {
+    lots: byProduct.reduce((s, r) => s + r.lots, 0),
+    printed: byProduct.reduce((s, r) => s + r.printed, 0),
+    products: byProduct,
+  };
+  return { lots, totals, more: lots.length === LOT_SEARCH_LIMIT };
 }
 
 export interface Material {
@@ -311,11 +332,9 @@ export type StatsGroup = "day" | "month";
 export interface StatsRow {
   period: string;                   // YYYY-MM-DD (first day of the month in month view)
   printed: number;                  // labels printed
-  wasted: number;                   // of those, misprinted
-  good: number;                     // printed − wasted
   jobs: number;                     // print jobs
   lots: string[];                   // lot codes as printed
-  products: Record<string, number>; // good labels per product
+  products: Record<string, number>; // labels per product
 }
 
 /** Finished prints between two lot days (inclusive), grouped per day or per month, newest first. */
@@ -323,20 +342,38 @@ export function getStats(from: string, to: string, group: StatsGroup, productId:
   return query<StatsRow>(
     `WITH p AS (
        SELECT date_trunc($3, l.lot_date)::date AS period, COALESCE(pr.name, 'No product') AS product,
-              p.lot, p.quantity, p.wasted
+              p.lot, p.quantity
        FROM prints p JOIN lots l ON l.id = p.lot_id LEFT JOIN products pr ON pr.id = l.product_id
        WHERE p.status = 'printed' AND l.lot_date BETWEEN $1 AND $2 AND ($4::int IS NULL OR l.product_id = $4)
      ), by_product AS (
-       SELECT period, product, SUM(quantity - wasted)::int AS n FROM p GROUP BY 1, 2
+       SELECT period, product, SUM(quantity)::int AS n FROM p GROUP BY 1, 2
      )
      SELECT to_char(p.period, 'YYYY-MM-DD') AS period,
             SUM(p.quantity)::int AS printed,
-            SUM(p.wasted)::int AS wasted,
-            SUM(p.quantity - p.wasted)::int AS good,
             COUNT(*)::int AS jobs,
             array_agg(DISTINCT p.lot ORDER BY p.lot) AS lots,
             (SELECT jsonb_object_agg(b.product, b.n) FROM by_product b WHERE b.period = p.period) AS products
      FROM p GROUP BY p.period ORDER BY p.period DESC`,
     [from, to, group, productId],
   );
+}
+
+// ---------------------------------------------------------------------------
+// Settings (label template, print choices), shared by every device
+// ---------------------------------------------------------------------------
+
+export const SETTING_KEYS = ["template", "print"] as const;
+export type SettingKey = (typeof SETTING_KEYS)[number];
+
+export async function getSetting(key: SettingKey): Promise<object | null> {
+  return (await query<{ value: object }>(`SELECT value FROM settings WHERE key = $1`, [key]))[0]?.value ?? null;
+}
+
+export async function saveSetting(key: SettingKey, value: object) {
+  await query(
+    `INSERT INTO settings (key, value) VALUES ($1, $2)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+    [key, JSON.stringify(value)],
+  );
+  return { ok: true };
 }

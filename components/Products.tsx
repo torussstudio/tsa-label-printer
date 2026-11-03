@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/Nav";
 import { errorText, fetchProducts, saveProduct, type Product } from "@/lib/api";
+import { PAPER_NAMES, PRESETS, presetForProduct } from "@/lib/label";
 
 /** Form values are strings while typing; the server checks the numbers. */
 type Draft = { name: string; shelfMonths: string; shelfDays: string; dailyTarget: string; active: boolean };
@@ -78,8 +79,63 @@ function ProductRow({ product, onSaved }: { product?: Product; onSaved: () => vo
         className="h-10 rounded-lg bg-ink px-4 text-sm font-semibold text-white disabled:opacity-40">
         {product ? (saved && !dirty ? "Saved" : "Save") : "Add"}
       </button>
+      {product && <LabelSize name={draft.name} />}
       {err && <p className="col-span-full text-sm text-err">{err}</p>}
     </form>
+  );
+}
+
+const size = (w: number, h: number) => `${w} × ${h} mm`;
+
+/** The product's own label type (by name) with its print and paper size; Bottle fits every product. */
+function LabelSize({ name }: { name: string }) {
+  const p = presetForProduct(name);
+  const bottle = PRESETS.find((x) => x.id === "bottle");
+  return (
+    <p className="col-span-full flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
+      {p ? (
+        <span>
+          <span className="font-semibold text-ink">{p.name}</span> · label {size(p.wMm, p.hMm)} on {size(p.paperWMm, p.paperHMm)} {PAPER_NAMES[p.paper].toLowerCase()}
+        </span>
+      ) : <span>No box label named after this product · use any label type</span>}
+      {bottle && p?.id !== bottle.id && (
+        <span>
+          <span className="font-semibold text-ink">{bottle.name}</span> · label {size(bottle.wMm, bottle.hMm)} on {size(bottle.paperWMm, bottle.paperHMm)} {PAPER_NAMES[bottle.paper].toLowerCase()}
+        </span>
+      )}
+    </p>
+  );
+}
+
+/** Every label type: the printed area and the sticker paper it goes on. */
+function LabelTypes() {
+  return (
+    <section className="border-y border-line bg-white p-4 sm:rounded-2xl sm:border sm:p-5">
+      <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">Label types and paper</h2>
+      <p className="mt-1 text-xs text-muted">Label = the printed table. Paper = the sticker loaded in the printer; the label is printed in its middle.</p>
+      <div className="mt-3 overflow-x-auto rounded-xl border border-line">
+        <table className="w-full min-w-[480px] text-left text-sm">
+          <thead className="bg-page text-xs uppercase tracking-wider text-muted">
+            <tr>
+              <th className="px-3 py-2.5 font-semibold">Label type</th>
+              <th className="px-3 py-2.5 font-semibold">Label size</th>
+              <th className="px-3 py-2.5 font-semibold">Paper size</th>
+              <th className="px-3 py-2.5 font-semibold">Paper</th>
+            </tr>
+          </thead>
+          <tbody>
+            {PRESETS.map((p) => (
+              <tr key={p.id} className="border-t border-line">
+                <td className="px-3 py-2.5 font-semibold">{p.name}</td>
+                <td className="px-3 py-2.5 tabular-nums">{size(p.wMm, p.hMm)}</td>
+                <td className="px-3 py-2.5 tabular-nums">{size(p.paperWMm, p.paperHMm)}</td>
+                <td className="px-3 py-2.5">{PAPER_NAMES[p.paper]}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
@@ -102,6 +158,7 @@ export function Products() {
         {products?.map((p) => <ProductRow key={`${p.id}-${JSON.stringify(p)}`} product={p} onSaved={load} />)}
         {products && <ProductRow onSaved={load} />}
       </section>
+      <div className="mt-3 sm:mt-4"><LabelTypes /></div>
     </div>
   );
 }

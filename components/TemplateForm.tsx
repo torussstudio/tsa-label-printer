@@ -534,7 +534,7 @@ export function TemplateForm({ tpl, update }: Props) {
 
       <p className="mt-6 flex items-center gap-2 border-t border-line pt-4 text-xs text-muted">
         <span className="size-1.5 rounded-full bg-ok" />
-        Saved automatically in this browser
+        Saved automatically in the database, for every device
       </p>
     </section>
   );

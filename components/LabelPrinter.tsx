@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlignmentDialog } from "@/components/AlignmentDialog";
 import { LabelPreview, type LabelPreviewHandle } from "@/components/LabelPreview";
 import { PageHeader } from "@/components/Nav";
 import { TemplateForm } from "@/components/TemplateForm";
@@ -12,8 +13,8 @@ import {
   type Lot, type PrintJob, type Product,
 } from "@/lib/api";
 import {
-  DEFAULT_CALIBRATION, HEAD_DOTS, MAX_QTY, addDays, buildLot, expiryDate, formatDate, getPreset, parseDay, toDay,
-  type LabelData, type LabelTemplate, type PresetId,
+  DEFAULT_CALIBRATION, HEAD_DOTS, MAX_QTY, buildLot, expiryDate, formatDate, getPreset, parseDay, presetForProduct, toDay,
+  type LabelData, type LabelTemplate,
 } from "@/lib/label";
 import { connectPrinter, isWebBluetoothSupported, printCanvas, type PrinterClient } from "@/lib/printer";
 
@@ -24,8 +25,10 @@ const MAX_QUICK_JOBS = 8;
 const shelfOf = (p: Product) => ({ months: p.shelfMonths, days: p.shelfDays });
 
 export function LabelPrinter() {
-  const { tpl, update } = useTemplate();
-  const { settings, update: updateSettings } = usePrintSettings();
+  // Template (incl. printer alignment) and print choices live in the database, shared by every device
+  const { tpl, update, loaded: tplLoaded, error: tplErr } = useTemplate();
+  const { settings, update: updateSettings, error: settingsErr } = usePrintSettings();
+  const [alignOpen, setAlignOpen] = useState(false);
   const now = useNow();
   const previewRef = useRef<LabelPreviewHandle>(null);
   const preset = getPreset(tpl.preset);
@@ -46,7 +49,7 @@ export function LabelPrinter() {
   const [rev, setRev] = useState(0);
   const refresh = useCallback(() => setRev((r) => r + 1), []);
 
-  // Products from the database; the selected one is remembered on this device
+  // Products from the database; the selected one is saved in the print settings
   const [products, setProducts] = useState<Product[] | null>(null);
   const [dbErr, setDbErr] = useState<string | null>(null);
   useEffect(() => {
@@ -60,20 +63,15 @@ export function LabelPrinter() {
   const updateTemplate = useCallback(<K extends keyof LabelTemplate>(key: K, value: LabelTemplate[K]) => {
     update(key, value);
     if (key !== "preset") return;
-    const word = getPreset(value as PresetId).name.split(" ")[0].toLowerCase();
-    const match = activeProducts.find((p) => p.name.trim().toLowerCase() === word);
+    const match = activeProducts.find((p) => presetForProduct(p.name)?.id === value);
     if (match) updateSettings("productId", match.id);
   }, [update, updateSettings, activeProducts]);
 
-  // Which day's lot to print: today, or an earlier day (needs a reason, e.g. "made yesterday, labelled today")
+  // Labels are always for today's lot (the server's day, Spain time, once it has answered)
   const clientDay = now ? toDay(now) : null;
   const [serverDay, setServerDay] = useState<string | null>(null);
   const today = serverDay ?? clientDay;
-  const [earlier, setEarlier] = useState(false);
-  const [earlierDate, setEarlierDate] = useState("");
-  const [note, setNote] = useState("");
-  const yesterday = today ? toDay(addDays(parseDay(today), -1)) : undefined;
-  const lotDate = earlier ? (earlierDate && today && earlierDate < today ? earlierDate : null) : today;
+  const lotDate = today;
 
   // The selected product's lot for that day (null until that day's first print makes it)
   const [lot, setLot] = useState<Lot | null>(null);
@@ -108,10 +106,10 @@ export function LabelPrinter() {
     shelf: shelfMonths === undefined || shelfDays === undefined ? undefined : { months: shelfMonths, days: shelfDays },
   } : null, [lotDate, previewCode, shelfMonths, shelfDays]);
 
-  // Daily target progress for the selected product (good labels of today's lot)
-  const goodToday = (history ?? [])
+  // Daily target progress for the selected product (labels of today's lot)
+  const printedToday = (history ?? [])
     .filter((j) => j.status === "printed" && j.productId === product?.id && j.lotDate === today)
-    .reduce((s, j) => s + j.quantity - j.wasted, 0);
+    .reduce((s, j) => s + j.quantity, 0);
 
   // Printer alignment for the paper of the selected label type (mm)
   const calibration = tpl.calibration ?? DEFAULT_CALIBRATION;
@@ -126,9 +124,8 @@ export function LabelPrinter() {
   const clamp = (v: number) => Math.min(MAX_QTY, Math.max(1, Number.isFinite(v) ? Math.floor(v) : 1));
 
   // What still blocks printing, in words (null = ready)
-  const blocker = !product ? "Pick a product"
-    : earlier && !lotDate ? "Pick the earlier day"
-    : earlier && !note.trim() ? "Write why you're printing an earlier day"
+  const blocker = !tplLoaded ? "Loading the saved label settings…"
+    : !product ? "Pick a product"
     : null;
 
   const onConnect = useCallback(async () => {
@@ -165,7 +162,7 @@ export function LabelPrinter() {
     let jobId: number | null = null;
     try {
       // Record the job first: the server answers with the lot to print (made now if it's the day's first)
-      const job = await startPrint(tpl, { productId: product.id, quantity: n, date: earlier ? lotDate : null, note: earlier ? note : "" });
+      const job = await startPrint(tpl, { productId: product.id, quantity: n, date: null, note: "" });
       jobId = job.id;
       setLot(job.lot);
       const data = { made: parseDay(job.lot.date), lotCode: job.lot.code, shelf: shelfOf(job.product) };
@@ -189,23 +186,23 @@ export function LabelPrinter() {
       setTimeout(() => setProgress(null), 1500);
       refresh();
     }
-  }, [printing, qty, tpl, preset.paper, product, blocker, earlier, lotDate, note, refresh]);
+  }, [printing, qty, tpl, preset.paper, product, blocker, refresh]);
 
   const onAlignmentTest = useCallback(async () => {
     const client = clientRef.current;
     const previewEl = previewRef.current;
-    if (!client || !previewEl || printing) return;
+    if (!client || !previewEl || printing || !tplLoaded) return;
     setPrinting(true);
     setMsg({ text: "Printing alignment test…" });
     try {
       await printCanvas(client, previewEl.renderAlignmentTest(headDots()), 1, tpl.density, preset.paper);
-      setMsg({ text: "Test printed. If the frame isn't even on all sides, adjust the alignment below and test again.", tone: "ok" });
+      setMsg({ text: "Test printed. If the frame isn't even on all sides, move it with the arrows and test again.", tone: "ok" });
     } catch (e) {
       setMsg({ text: `Print failed: ${errorText(e)}`, tone: "err" });
     } finally {
       setPrinting(false);
     }
-  }, [printing, tpl.density, preset.paper]);
+  }, [printing, tplLoaded, tpl.density, preset.paper]);
 
   // Quick jobs: saved product + label type + quantity, set up with one tap
   const quickName = (q: QuickJob) =>
@@ -263,29 +260,6 @@ export function LabelPrinter() {
             )}
           </div>
 
-          {/* Day: today's lot, or an earlier day's lot with a reason */}
-          <div className="mb-3 flex flex-wrap items-center gap-2">
-            <div role="radiogroup" aria-label="Lot day" className="flex rounded-lg border border-line bg-page p-0.5 text-sm">
-              {([[false, "Today"], [true, "Earlier day"]] as const).map(([v, label]) => (
-                <button key={label} type="button" role="radio" aria-checked={earlier === v}
-                  onClick={() => { setEarlier(v); if (v && !earlierDate && yesterday) setEarlierDate(yesterday); }}
-                  className={`h-8 rounded-md px-3 font-semibold transition ${earlier === v ? "bg-white text-ink shadow-sm" : "text-muted hover:text-ink"}`}>
-                  {label}
-                </button>
-              ))}
-            </div>
-            {earlier && (
-              <>
-                <input type="date" value={earlierDate} max={yesterday} aria-label="Earlier day"
-                  onChange={(e) => setEarlierDate(e.target.value)}
-                  className="h-9 rounded-lg border border-line bg-white px-2 text-sm outline-none focus:border-accent" />
-                <input type="text" value={note} maxLength={200} placeholder="Why? e.g. made yesterday, labelled today"
-                  aria-label="Reason" onChange={(e) => setNote(e.target.value)}
-                  className="h-9 min-w-0 flex-1 basis-56 rounded-lg border border-line bg-white px-2.5 text-sm outline-none focus:border-accent" />
-              </>
-            )}
-          </div>
-
           <LabelPreview ref={previewRef} tpl={tpl} data={preview} />
 
           {preview && (
@@ -299,19 +273,20 @@ export function LabelPrinter() {
             ? <p className="mt-2 text-center text-xs text-err">Database: {dbErr}. Printing needs the database to get the lot.</p>
             : product && <p className="mt-2 text-center text-xs text-muted">
               {shownLot
-                ? `Every ${product.name} print ${earlier ? "for that day" : "today"}, on any device, uses this lot.`
-                : `New ${product.name} lot: it's made by the ${earlier ? "next print for that day" : "first print today"}.`}
+                ? `Every ${product.name} print today, on any device, uses this lot.`
+                : `New ${product.name} lot: it's made by the first print today.`}
             </p>}
+          {(tplErr || settingsErr) && <p className="mt-1 text-center text-xs text-err">{tplErr ?? settingsErr}</p>}
 
-          {product?.dailyTarget && !earlier && (
+          {product?.dailyTarget && (
             <div className="mt-3 rounded-lg bg-page px-3 py-2">
               <div className="flex justify-between text-xs">
                 <span className="font-semibold">Today&apos;s target · {product.name}</span>
-                <span className="tabular-nums text-muted"><span className="font-semibold text-ink">{goodToday}</span> / {product.dailyTarget}</span>
+                <span className="tabular-nums text-muted"><span className="font-semibold text-ink">{printedToday}</span> / {product.dailyTarget}</span>
               </div>
               <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-[#e4e2dc]">
-                <div className={`h-full ${goodToday >= product.dailyTarget ? "bg-ok" : "bg-accent"}`}
-                  style={{ width: `${Math.min(100, (goodToday / product.dailyTarget) * 100)}%` }} />
+                <div className={`h-full ${printedToday >= product.dailyTarget ? "bg-ok" : "bg-accent"}`}
+                  style={{ width: `${Math.min(100, (printedToday / product.dailyTarget) * 100)}%` }} />
               </div>
             </div>
           )}
@@ -352,59 +327,42 @@ export function LabelPrinter() {
           </div>
           {blocker && conn === "connected" && <p className="mt-1.5 text-xs text-muted">{blocker}</p>}
 
-          <button type="button" onClick={onConnect} disabled={!supported || printing || conn === "connecting"}
-            className="mt-2.5 h-13 w-full rounded-xl border border-line bg-white font-semibold hover:bg-[#f6f5f1] disabled:cursor-not-allowed disabled:opacity-45">
-            {conn === "connected" ? "Disconnect" : conn === "connecting" ? "Connecting…" : "Connect printer"}
-          </button>
+          <div className="mt-2.5 flex gap-2.5">
+            <button type="button" onClick={onConnect} disabled={!supported || printing || conn === "connecting"}
+              className="h-13 flex-1 rounded-xl border border-line bg-white font-semibold hover:bg-[#f6f5f1] disabled:cursor-not-allowed disabled:opacity-45">
+              {conn === "connected" ? "Disconnect" : conn === "connecting" ? "Connecting…" : "Connect printer"}
+            </button>
+            <button type="button" onClick={() => setAlignOpen(true)} disabled={!tplLoaded}
+              className="flex h-13 flex-col items-center justify-center rounded-xl border border-line bg-white px-4 leading-tight hover:bg-[#f6f5f1] disabled:cursor-not-allowed disabled:opacity-45">
+              <span className="font-semibold">Alignment</span>
+              <span className="text-[11px] text-muted tabular-nums">{cal.x > 0 ? "+" : ""}{cal.x} / {cal.y > 0 ? "+" : ""}{cal.y} mm</span>
+            </button>
+          </div>
 
           {progress !== null && (
             <div className="mt-3.5 h-1.5 overflow-hidden rounded-full bg-[#eceae4]">
               <div className="h-full bg-accent transition-[width] duration-200" style={{ width: `${progress}%` }} />
             </div>
           )}
-          <details className="group mt-4 rounded-xl border border-line bg-page/60 px-3.5 py-2.5">
-            <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-semibold">
-              Printer alignment
-              <span className="text-xs font-normal text-muted">
-                {preset.paper === "transparent" ? "Transparent" : "White sticker"} · {cal.x > 0 ? "+" : ""}{cal.x} / {cal.y > 0 ? "+" : ""}{cal.y} mm
-              </span>
-            </summary>
-            <p className="mt-2 text-xs text-muted">
-              Print the test once. The frame should be the same distance from every edge of the sticker.
-              If it isn&apos;t, move it here and test again. Saved per paper type.
-            </p>
-            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {([["x", "Left / right", "←", "→"], ["y", "Up / down", "↑", "↓"]] as const).map(([axis, label, minus, plus]) => (
-                <div key={axis} className="flex items-center justify-between gap-2 rounded-lg border border-line bg-white px-2 py-1.5">
-                  <span className="text-xs font-semibold text-muted">{label}</span>
-                  <div className="flex items-center gap-1">
-                    <button type="button" aria-label={`${label} minus`} onClick={() => setCal(axis, cal[axis] - 0.5)}
-                      className="size-8 rounded-md bg-page text-base hover:bg-[#eeece6]">{minus}</button>
-                    <span className="w-16 whitespace-nowrap text-center text-sm font-semibold tabular-nums">{cal[axis] > 0 ? "+" : ""}{cal[axis]} mm</span>
-                    <button type="button" aria-label={`${label} plus`} onClick={() => setCal(axis, cal[axis] + 0.5)}
-                      className="size-8 rounded-md bg-page text-base hover:bg-[#eeece6]">{plus}</button>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="mt-2.5 flex gap-2">
-              <button type="button" onClick={onAlignmentTest} disabled={conn !== "connected" || printing}
-                className="h-10 flex-1 rounded-lg border border-line bg-white text-sm font-semibold hover:bg-[#f6f5f1] disabled:cursor-not-allowed disabled:opacity-45">
-                Print alignment test
-              </button>
-              <button type="button" onClick={() => update("calibration", { ...calibration, [preset.paper]: { x: 0, y: 0 } })}
-                className="h-10 rounded-lg px-3 text-sm text-muted hover:text-ink">
-                Reset
-              </button>
-            </div>
-          </details>
+          <AlignmentDialog
+            open={alignOpen}
+            onClose={() => setAlignOpen(false)}
+            paperName={preset.paper === "transparent" ? "Transparent sticker" : "White sticker"}
+            cal={cal}
+            onMove={(axis, d) => setCal(axis, cal[axis] + d)}
+            onReset={() => update("calibration", { ...calibration, [preset.paper]: { x: 0, y: 0 } })}
+            onTest={onAlignmentTest}
+            canTest={conn === "connected" && !printing}
+            testHint={conn !== "connected" ? "Connect the printer first." : null}
+            message={msg}
+          />
 
           {msg && <p className={`mt-2.5 text-sm ${msg?.tone === "err" ? "text-err" : msg?.tone === "ok" ? "text-ok" : ""}`}>
             {msg.text}
           </p>}
         </section>
 
-        <TodayPrints jobs={history} error={historyErr} onChanged={refresh} />
+        <TodayPrints jobs={history} error={historyErr} />
         </div>
 
         <TemplateForm tpl={tpl} update={updateTemplate} />

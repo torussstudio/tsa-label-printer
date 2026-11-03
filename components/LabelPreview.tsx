@@ -167,7 +167,6 @@ const loadFonts = (tpl: LabelTemplate) => Promise.all(Object.values(fontsFor(tpl
  */
 type ViewMode = "smooth" | "print";
 const SMOOTH_RES = 4;
-const VIEW_KEY = "tsa-label-preview-view";
 /** Print view is hidden for now: the preview is always smooth. Set to true to bring the toggle back. */
 const SHOW_PRINT_VIEW = false;
 
@@ -191,17 +190,9 @@ interface Props {
 export const LabelPreview = forwardRef<LabelPreviewHandle, Props>(function LabelPreview({ tpl, data }, ref) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // Preview mode, remembered per browser (falls back to smooth if storage is unavailable)
+  // Preview mode, for this visit only (nothing is kept in the browser)
   const [view, setView] = useState<ViewMode>("smooth");
-  useEffect(() => {
-    try {
-      if (SHOW_PRINT_VIEW && localStorage.getItem(VIEW_KEY) === "print") setView("print");
-    } catch { /* ignore */ }
-  }, []);
-  const changeView = (v: ViewMode) => {
-    setView(v);
-    try { localStorage.setItem(VIEW_KEY, v); } catch { /* ignore */ }
-  };
+  const changeView = setView;
   const smooth = !SHOW_PRINT_VIEW || view === "smooth";
   const res = smooth ? SMOOTH_RES : 1;
 

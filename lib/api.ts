@@ -1,10 +1,10 @@
 // Browser-side calls to the route handlers in app/api.
 import type {
-  Lot, LotSummary, Material, PrintJob, Product, ProductInput, StatsGroup, StatsRow,
+  Lot, LotSummary, LotTotals, Material, PrintJob, Product, ProductInput, SettingKey, StatsGroup, StatsRow,
 } from "@/lib/db";
 import type { LabelTemplate } from "@/lib/label";
 
-export type { Lot, LotSummary, Material, PrintJob, Product, ProductInput, StatsGroup, StatsRow };
+export type { Lot, LotSummary, LotTotals, Material, PrintJob, Product, ProductInput, StatsGroup, StatsRow };
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -30,7 +30,8 @@ export const saveProduct = (id: number | null, p: ProductInput) =>
 /** The product's lot for that day (null until its first print). `today` is the server's day. */
 export const fetchDayLot = (productId: number, date?: string) =>
   call<{ today: string; lot: Lot | null }>(`/api/lots/day?${new URLSearchParams({ product: String(productId), ...(date ? { date } : {}) })}`);
-export const searchLots = (q: string) => call<LotSummary[]>(`/api/lots?${new URLSearchParams({ q })}`);
+export const searchLots = (q: string, from: string, to: string) =>
+  call<{ lots: LotSummary[]; totals: LotTotals; more: boolean }>(`/api/lots?${new URLSearchParams({ q, ...(from ? { from } : {}), ...(to ? { to } : {}) })}`);
 export const fetchLot = (id: number) =>
   call<{ lot: LotSummary; product: Product | null; prints: PrintJob[]; materials: Material[] }>(`/api/lots/${id}`);
 export const addMaterial = (lotId: number, m: Omit<Material, "id">) =>
@@ -53,11 +54,14 @@ export const startPrint = (tpl: LabelTemplate, job: StartPrint) =>
   }));
 export const finishPrint = (id: number, status: "printed" | "failed") =>
   call<{ ok: true }>(`/api/prints/${id}`, json("PATCH", { status }));
-export const setWasted = (id: number, wasted: number) =>
-  call<{ ok: true }>(`/api/prints/${id}`, json("PATCH", { wasted }));
 export const fetchPrints = (from: string, to: string, by: "lot" | "printed", productId?: number | null) =>
   call<PrintJob[]>(`/api/prints?${new URLSearchParams({ from, to, by, ...(productId ? { product: String(productId) } : {}) })}`);
 
 // Reports
 export const fetchStats = (from: string, to: string, group: StatsGroup, productId?: number | null) =>
   call<{ rows: StatsRow[] }>(`/api/stats?${new URLSearchParams({ from, to, group, ...(productId ? { product: String(productId) } : {}) })}`);
+
+// Settings shared by every device
+export const fetchSetting = <T>(key: SettingKey) => call<{ value: T | null }>(`/api/settings/${key}`).then((r) => r.value);
+export const saveSetting = (key: SettingKey, value: object, keepalive = false) =>
+  call<{ ok: true }>(`/api/settings/${key}`, { ...json("PUT", { value }), keepalive });

@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS products (
   name         text UNIQUE NOT NULL,
   shelf_months int  NOT NULL DEFAULT 11 CHECK (shelf_months BETWEEN 0 AND 120),
   shelf_days   int  NOT NULL DEFAULT 12 CHECK (shelf_days BETWEEN 0 AND 366),
-  daily_target int  CHECK (daily_target > 0),  -- good labels per day, optional
+  daily_target int  CHECK (daily_target > 0),  -- labels per day, optional
   active       boolean NOT NULL DEFAULT true,
   sort         int  NOT NULL DEFAULT 0,
   created_at   timestamptz NOT NULL DEFAULT now()
@@ -36,7 +36,6 @@ CREATE TABLE IF NOT EXISTS prints (
   status     text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'printed', 'failed')),
   printed_at timestamptz NOT NULL DEFAULT now()
 );
-ALTER TABLE prints ADD COLUMN IF NOT EXISTS wasted int NOT NULL DEFAULT 0 CHECK (wasted >= 0); -- misprints
 ALTER TABLE prints ADD COLUMN IF NOT EXISTS note text;  -- reason, required when printing an earlier day's lot
 CREATE INDEX IF NOT EXISTS prints_lot_id_idx ON prints (lot_id);
 CREATE INDEX IF NOT EXISTS prints_printed_at_idx ON prints (printed_at);
@@ -59,3 +58,11 @@ ALTER TABLE products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE lots ENABLE ROW LEVEL SECURITY;
 ALTER TABLE prints ENABLE ROW LEVEL SECURITY;
 ALTER TABLE lot_materials ENABLE ROW LEVEL SECURITY;
+
+-- App settings shared by every device: label template, printer alignment, selected product, quick jobs.
+CREATE TABLE IF NOT EXISTS settings (
+  key        text PRIMARY KEY,              -- "template" | "print"
+  value      jsonb NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE settings ENABLE ROW LEVEL SECURITY;

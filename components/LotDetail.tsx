@@ -48,8 +48,7 @@ export function LotDetail() {
     ["Product", lot.productName ?? "—"],
     ["Made", showDay(lot.date)],
     ["Expires", lot.expDate ? showDay(lot.expDate) : "—"],
-    ["Good labels", String(lot.printed - lot.wasted)],
-    ["Wasted", String(lot.wasted)],
+    ["Labels printed", String(lot.printed)],
     ["Print jobs", String(lot.jobs)],
   ];
 
@@ -64,7 +63,7 @@ export function LotDetail() {
         {lot && stats && (
           <section className="border-y border-line bg-white p-4 sm:rounded-2xl sm:border sm:p-5">
             <p className="font-mono text-2xl font-semibold tracking-wide">{lot.lot ?? lot.code}</p>
-            <dl className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-6">
+            <dl className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
               {stats.map(([k, v]) => (
                 <div key={k} className="rounded-lg bg-page px-3 py-2">
                   <dt className="text-xs text-muted">{k}</dt>
@@ -118,7 +117,6 @@ export function LotDetail() {
                     <th className="px-3 py-2.5 font-semibold">Label type</th>
                     <th className="px-3 py-2.5 font-semibold">Status</th>
                     <th className="px-3 py-2.5 font-semibold">Note</th>
-                    <th className="px-3 py-2.5 text-right font-semibold">Wasted</th>
                     <th className="px-3 py-2.5 text-right font-semibold">Labels</th>
                   </tr>
                 </thead>
@@ -129,7 +127,6 @@ export function LotDetail() {
                       <td className="px-3 py-2.5">{getPreset(p.preset).name}</td>
                       <td className="px-3 py-2.5 capitalize">{p.status === "pending" ? "Not finished" : p.status}</td>
                       <td className="px-3 py-2.5 text-muted">{p.note ?? ""}</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums">{p.wasted || ""}</td>
                       <td className="px-3 py-2.5 text-right font-semibold tabular-nums">{p.quantity}</td>
                     </tr>
                   ))}

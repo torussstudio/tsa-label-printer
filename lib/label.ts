@@ -47,6 +47,13 @@ export const PRESETS: LabelPreset[] = [
 /** Falls back to the first preset if the saved id is missing/unknown. */
 export const getPreset = (id?: string): LabelPreset => PRESETS.find((p) => p.id === id) ?? PRESETS[0];
 
+/** The label type named after a product ("Serum" → Serum box), if there is one. Bottle fits every product. */
+export const presetForProduct = (productName: string): LabelPreset | undefined =>
+  PRESETS.find((p) => p.name.split(" ")[0].toLowerCase() === productName.trim().toLowerCase());
+
+/** Paper names as people say them. */
+export const PAPER_NAMES: Record<LabelPaper, string> = { gaps: "White sticker", transparent: "Transparent sticker" };
+
 /**
  * Printhead width of the NIIMBOT B1: 48 mm = 384 dots. The paper roll is centred on the head by the
  * roll guides, so the centre of the head = the centre of the sticker.

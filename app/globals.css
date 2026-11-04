@@ -19,3 +19,7 @@ body {
   font-size: 15px;
   line-height: 1.45;
 }
+
+:where(button, [role="button"], input[type="button"], input[type="submit"], input[type="reset"]) {
+  cursor: pointer !important;
+}

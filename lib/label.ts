@@ -1,3 +1,522 @@
+// export const LABEL_W = 320;
+// export const LABEL_H = 240;
+// export const DOTS_PER_MM = 8;
+
+// export type DateFormat = "dd.mm.yy" | "dd.mm.yyyy" | "dd/mm/yy";
+// export type LabelPaper = "transparent" | "gaps";
+// export type FontKey =
+//   | "barlow" | "sharetechsans" | "jetbrains" | "space" | "sharetech" | "plex"
+//   | "caveat" | "shadows" | "reenie" | "nanum" | "homemade"
+//   | "rokkitt" | "courier" | "special" | "zilla" | "arvo"
+//   | "grotesk" | "rajdhani" | "chakra" | "saira"
+//   | "montech" | "montechsemi" | "lastsignature" | "typewriterserial";
+
+// export type PresetId = "serum-box" | "crema-box" | "cleanser-box" | "bottle";
+
+// /**
+//  * "classic": hourglass icon + the template's fonts.
+//  * "handmade": handwritten date, hourglass icon in the left cell.
+//  */
+// export type LabelDesign = "classic" | "handmade";
+
+// /**
+//  * A physical label type.
+//  * - wMm × hMm: the DESIGN area (what is actually printed, centred on the paper)
+//  * - paperWMm × paperHMm: the PAPER (sticker) loaded in the printer = canvas size
+//  */
+// export interface LabelPreset {
+//   id: PresetId;
+//   name: string;
+//   wMm: number;        // design width
+//   hMm: number;        // design height
+//   paperWMm: number;   // paper width
+//   paperHMm: number;   // paper height
+//   paper: LabelPaper;
+//   design: LabelDesign;
+// }
+
+// export const PRESETS: LabelPreset[] = [
+//   // white sticker paper 4×3 cm
+//   { id: "serum-box", name: "Serum box", wMm: 30, hMm: 30, paperWMm: 40, paperHMm: 30, paper: "gaps", design: "handmade" },       // design 3×3 cm
+//   { id: "crema-box", name: "Cream box", wMm: 35, hMm: 30, paperWMm: 40, paperHMm: 30, paper: "gaps", design: "handmade" },       // design 3.5×3 cm
+//   { id: "cleanser-box", name: "Cleanser box", wMm: 35, hMm: 30, paperWMm: 40, paperHMm: 30, paper: "gaps", design: "handmade" }, // design 3.5×3 cm
+//   // transparent sticker paper 3×3 cm
+//   { id: "bottle", name: "Bottle", wMm: 30, hMm: 20, paperWMm: 30, paperHMm: 30, paper: "transparent", design: "handmade" },     // design 3×2 cm
+// ];
+
+// /** Falls back to the first preset if the saved id is missing/unknown. */
+// export const getPreset = (id?: string): LabelPreset => PRESETS.find((p) => p.id === id) ?? PRESETS[0];
+
+// /** The label type named after a product ("Serum" → Serum box), if there is one. Bottle fits every product. */
+// export const presetForProduct = (productName: string): LabelPreset | undefined =>
+//   PRESETS.find((p) => p.name.split(" ")[0].toLowerCase() === productName.trim().toLowerCase());
+
+// /** Paper names as people say them. */
+// export const PAPER_NAMES: Record<LabelPaper, string> = { gaps: "White sticker", transparent: "Transparent sticker" };
+
+// /**
+//  * Printhead width of the NIIMBOT B1: 48 mm = 384 dots. The paper roll is centred on the head by the
+//  * roll guides, so the centre of the head = the centre of the sticker.
+//  *
+//  * Why this matters: if we send an image NARROWER than the head (e.g. 320 dots for a 40 mm sticker),
+//  * the printer does not centre it, so the whole print lands off-centre and anything pushed towards the
+//  * edge gets cut. So the printed image is always made the full head width, with the sticker area in the
+//  * middle (see composeForPrinter).
+//  */
+// export const HEAD_DOTS = 384;
+
+// /** Fine alignment per paper type, in mm. + x = move right, + y = move down (towards the end of the sticker). */
+// export type Calibration = Record<LabelPaper, { x: number; y: number }>;
+// export const DEFAULT_CALIBRATION: Calibration = { gaps: { x: 0, y: 0 }, transparent: { x: 0, y: 0 } };
+
+// export const FONTS: Record<FontKey, { label: string; family: string; weight: number }> = {
+//   barlow: { label: "Barlow Condensed", family: "Barlow Condensed", weight: 700 },
+//   sharetechsans: { label: "Share Tech", family: "Share Tech", weight: 400 },
+//   jetbrains: { label: "JetBrains Mono", family: "JetBrains Mono", weight: 800 },
+//   space: { label: "Space Mono", family: "Space Mono", weight: 700 },
+//   sharetech: { label: "Share Tech Mono", family: "Share Tech Mono", weight: 400 },
+//   plex: { label: "IBM Plex Mono", family: "IBM Plex Mono", weight: 700 },
+//   // handwriting (date)
+//   caveat: { label: "Caveat", family: "Caveat", weight: 500 },
+//   shadows: { label: "Shadows Into Light", family: "Shadows Into Light", weight: 400 },
+//   reenie: { label: "Reenie Beanie", family: "Reenie Beanie", weight: 400 },
+//   nanum: { label: "Nanum Pen Script", family: "Nanum Pen Script", weight: 400 },
+//   homemade: { label: "Homemade Apple", family: "Homemade Apple", weight: 400 },
+//   lastsignature: { label: "Last Signature", family: "Last Signature", weight: 400 },
+//   // slab / typewriter
+//   rokkitt: { label: "Rokkitt", family: "Rokkitt", weight: 500 },
+//   courier: { label: "Courier Prime", family: "Courier Prime", weight: 400 },
+//   special: { label: "Special Elite", family: "Special Elite", weight: 400 },
+//   zilla: { label: "Zilla Slab", family: "Zilla Slab", weight: 500 },
+//   arvo: { label: "Arvo", family: "Arvo", weight: 400 },
+//   typewriterserial: { label: "Typewriter Serial", family: "Typewriter Serial", weight: 400 },
+//   // bold captions (HECHO EL / EXP / LOTE)
+//   grotesk: { label: "Space Grotesk", family: "Space Grotesk", weight: 700 },
+//   rajdhani: { label: "Rajdhani", family: "Rajdhani", weight: 700 },
+//   chakra: { label: "Chakra Petch", family: "Chakra Petch", weight: 600 },
+//   saira: { label: "Saira Semi Condensed", family: "Saira Semi Condensed", weight: 700 },
+//   montechsemi: { label: "Montech SemiBold", family: "Montech", weight: 600 },
+//   // values (EXP date, lot)
+//   montech: { label: "Montech Regular", family: "Montech", weight: 400 },
+// };
+
+// /** Which font each part of the label uses, depending on the design. */
+// export function fontsFor(tpl: LabelTemplate) {
+//   if (getPreset(tpl.preset).design === "handmade") {
+//     return {
+//       date: tpl.dateFont ?? "lastsignature",
+//       value: tpl.valueFont ?? "montech",
+//       caption: tpl.captionFont ?? "montechsemi",
+//       body: tpl.bodyFont ?? "typewriterserial",
+//     };
+//   }
+//   return { date: tpl.font, value: tpl.font, caption: tpl.labelFont, body: tpl.labelFont };
+// }
+
+// /** Fixed parts of the label. Set once, saved in the browser. */
+// export interface LabelTemplate {
+//   preset: PresetId;       // which label type (design size + paper)
+//   madeLabel: string;      // "HECHO EL"
+//   expLabel: string;       // "EXP"
+//   lotLabel: string;       // "LOTE"
+//   dateFont: FontKey;      // handmade design: the big "made" date
+//   valueFont: FontKey;     // handmade design: EXP date + lot
+//   captionFont: FontKey;   // handmade design: HECHO EL / EXP / LOTE
+//   bodyFont: FontKey;      // handmade design: (unused now, left cell is the hourglass)
+//   lotPrefix: string;      // "TSA"
+//   lotWithYear: boolean;   // TSA + 26 + code
+//   format: DateFormat;
+//   font: FontKey;          // values (dates, lot)
+//   labelFont: FontKey;     // small captions (HECHO EL / EXP / LOTE)
+//   showIcon: boolean;
+//   density: number;        // 1–5
+//   paper: LabelPaper;      // kept for old saved data; the active paper comes from the preset
+//   offsetX: number;        // px, nudge print position
+//   offsetY: number;
+//   scale: number;          // % size of the table on the label (100 = reference design)
+//   lineWidth: number;      // table line thickness in dots (1 = reference, 2 = safer on thermal)
+//   calibration: Calibration; // printer alignment per paper type, mm (set with the alignment test print)
+// }
+
+// export const DEFAULT_TEMPLATE: LabelTemplate = {
+//   preset: "serum-box",
+//   madeLabel: "HECHO EL",
+//   expLabel: "EXP",
+//   lotLabel: "LOTE",
+//   dateFont: "lastsignature",
+//   valueFont: "montech",
+//   captionFont: "montechsemi",
+//   bodyFont: "typewriterserial",
+//   lotPrefix: "TSA",
+//   lotWithYear: true,
+//   format: "dd.mm.yy",
+//   font: "plex",
+//   labelFont: "barlow",
+//   showIcon: true,
+//   density: 3,
+//   paper: "gaps",
+//   offsetX: 0,
+//   offsetY: 0,
+//   scale: 125,
+//   lineWidth: 1,
+//   calibration: DEFAULT_CALIBRATION,
+// };
+
+// export const DATE_FORMATS: { value: DateFormat; label: string }[] = [
+//   { value: "dd.mm.yy", label: "22.08.26" },
+//   { value: "dd.mm.yyyy", label: "22.08.2026" },
+//   { value: "dd/mm/yy", label: "22/08/26" },
+// ];
+
+// /** Fixed shelf life: expiry = made date + 11 months + 12 days. */
+// export const SHELF_LIFE = { months: 11, days: 12 } as const;
+
+// const p2 = (n: number) => String(n).padStart(2, "0");
+
+// export function formatDate(d: Date, f: DateFormat): string {
+//   const dd = p2(d.getDate()), mm = p2(d.getMonth() + 1);
+//   const yyyy = String(d.getFullYear()), yy = yyyy.slice(-2);
+//   if (f === "dd.mm.yyyy") return `${dd}.${mm}.${yyyy}`;
+//   if (f === "dd/mm/yy") return `${dd}/${mm}/${yy}`;
+//   return `${dd}.${mm}.${yy}`;
+// }
+
+// /** Adds months, clamping to the month's last day (31 Jan + 1 → 28/29 Feb). */
+// export function addMonths(d: Date, months: number): Date {
+//   const r = new Date(d.getFullYear(), d.getMonth() + months, 1);
+//   const last = new Date(r.getFullYear(), r.getMonth() + 1, 0).getDate();
+//   r.setDate(Math.min(d.getDate(), last));
+//   return r;
+// }
+
+// export function addDays(d: Date, days: number): Date {
+//   return new Date(d.getFullYear(), d.getMonth(), d.getDate() + days);
+// }
+
+// export type ShelfLife = { months: number; days: number };
+
+// /** Expiry date: made date + the product's months, then + its days (default 11 months + 12 days). */
+// export function expiryDate(made: Date, shelf: ShelfLife = SHELF_LIFE): Date {
+//   return addDays(addMonths(made, shelf.months), shelf.days);
+// }
+
+// /** A day as "YYYY-MM-DD" (local calendar date, as stored in Postgres). */
+// export const toDay = (d: Date) => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+
+// /** "YYYY-MM-DD" → local Date at noon (noon, so no time zone shift can move it to another day). */
+// export function parseDay(day: string): Date {
+//   const [y, m, d] = day.split("-").map(Number);
+//   return new Date(y, m - 1, d, 12);
+// }
+
+// // ---------------------------------------------------------------------------
+// // Lot code: one per product per day, stored in the database (see lib/db.ts).
+// //
+// // The first print of a product on a day makes a random 6-character code; every
+// // other print of that product that day, on any device, reuses it.
+// // ---------------------------------------------------------------------------
+
+// // 32 characters, without 0/O and 1/I/L, so the printed code is easy to read
+// export const LOT_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+// export const LOT_LENGTH = 6;
+// /** Most labels in one print job. */
+// export const MAX_QTY = 999;
+// /** Shown in the preview until today's code has loaded from the database. */
+// const LOT_PLACEHOLDER = "-".repeat(LOT_LENGTH);
+
+// /** Full lot as printed: prefix + YY (optional) + the day's code, e.g. "TSA26K7M2QX". */
+// export function buildLot(
+//   tpl: Pick<LabelTemplate, "lotPrefix" | "lotWithYear">, made: Date, code?: string | null,
+// ): string {
+//   const yy = String(made.getFullYear()).slice(-2);
+//   return `${tpl.lotPrefix}${tpl.lotWithYear ? yy : ""}${code ?? LOT_PLACEHOLDER}`.toUpperCase();
+// }
+
+// /** Makes sure the chosen web font is downloaded before drawing on canvas. */
+// export async function ensureFont(key: FontKey) {
+//   const f = FONTS[key];
+//   try {
+//     await document.fonts.load(`${f.weight} 40px "${f.family}"`, "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ.:/");
+//   } catch { /* fall back to system mono */ }
+// }
+
+// function setFont(ctx: CanvasRenderingContext2D, key: FontKey, px: number) {
+//   const f = FONTS[key];
+//   ctx.font = `${f.weight} ${px}px "${f.family}", ui-monospace, Menlo, Consolas, monospace`;
+// }
+
+// /** Writes `text` centred in a cell, shrinking it to fit. `bold` adds a thin stroke (fake bold). */
+// function cellText(
+//   ctx: CanvasRenderingContext2D, key: FontKey, text: string,
+//   x0: number, y0: number, x1: number, y1: number, maxPx: number, bold = false, stroke = 0,
+// ) {
+//   const pad = 6;
+//   // Small caps labels are letter-spaced like the reference design
+//   (ctx as CanvasRenderingContext2D & { letterSpacing?: string }).letterSpacing = bold ? "1px" : "0px";
+//   let px = maxPx;
+//   setFont(ctx, key, px);
+//   while (px > 8 && ctx.measureText(text).width > x1 - x0 - pad * 2) setFont(ctx, key, --px);
+//   ctx.textAlign = "center";
+//   ctx.textBaseline = "middle";
+//   const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2 + px * 0.04;
+//   ctx.fillText(text, cx, cy);
+//   if (stroke > 0) {
+//     // thin pen strokes (handwriting) can vanish on a thermal head, so thicken them a little
+//     ctx.lineWidth = stroke;
+//     ctx.lineJoin = "round";
+//     ctx.strokeText(text, cx, cy);
+//   }
+// }
+
+// /**
+//  * Hourglass as in the reference artwork:
+//  *   ╭──────╮   top bulb: straight sides (top quarter), then the glass narrows to the centre
+//  *   │ ▼▼▼▼ │   sand: filled shield with a rounded point
+//  *    ╲    ╱
+//  *      ╳       the two sides cross in the middle
+//  *    ╱    ╲
+//  *   │      │   bottom bulb: mirror of the top, empty
+//  *   ╰──────╯
+//  * One even outline everywhere (no thick base). The outline is at least 2 PRINTER DOTS wide, because a
+//  * thinner diagonal becomes a staircase of pixels that only touch at their corners, and a thermal head
+//  * prints that as a broken, dotted line.
+//  */
+// function drawHourglass(ctx: CanvasRenderingContext2D, cx: number, cy: number, h: number, res = 1) {
+//   const w = h * 0.58, hw = w / 2;          // reference proportions: width ≈ 0.58 × height
+//   const top = cy - h / 2, bot = cy + h / 2;
+//   const side = h * 0.25;                    // straight part of each bulb
+//   const r = h * 0.035;                      // small rounded corners
+//   // canvas units per printer dot (the current transform includes the preview resolution `res`)
+//   const scale = (Math.abs(ctx.getTransform().a) || 1) / res;
+//   ctx.lineWidth = Math.max(2 / scale, h * 0.025);
+//   ctx.lineJoin = "round";
+//   ctx.lineCap = "round";
+
+//   // Outline: one closed path, the two diagonals cross at the centre
+//   ctx.beginPath();
+//   ctx.moveTo(cx - hw, top + side);
+//   ctx.lineTo(cx - hw, top + r);
+//   ctx.quadraticCurveTo(cx - hw, top, cx - hw + r, top);
+//   ctx.lineTo(cx + hw - r, top);
+//   ctx.quadraticCurveTo(cx + hw, top, cx + hw, top + r);
+//   ctx.lineTo(cx + hw, top + side);
+//   ctx.lineTo(cx - hw, bot - side);          // diagonal ↙ through the centre
+//   ctx.lineTo(cx - hw, bot - r);
+//   ctx.quadraticCurveTo(cx - hw, bot, cx - hw + r, bot);
+//   ctx.lineTo(cx + hw - r, bot);
+//   ctx.quadraticCurveTo(cx + hw, bot, cx + hw, bot - r);
+//   ctx.lineTo(cx + hw, bot - side);
+//   ctx.closePath();                          // diagonal ↖ back to the start, through the centre
+//   ctx.stroke();
+
+//   // Sand: shield in the top bulb (inset 17 % of the width, from 9 % to 37 % of the height)
+//   const sx = w * 0.33, sTop = top + h * 0.095, sSide = top + h * 0.2, sTip = top + h * 0.37;
+//   ctx.beginPath();
+//   ctx.moveTo(cx - sx, sTop);
+//   ctx.lineTo(cx + sx, sTop);
+//   ctx.lineTo(cx + sx, sSide);
+//   ctx.lineTo(cx, sTip);
+//   ctx.lineTo(cx - sx, sSide);
+//   ctx.closePath();
+//   ctx.fill();
+//   ctx.lineWidth = Math.max(1.5 / scale, h * 0.02); // rounds the shield's corners, like the reference
+//   ctx.stroke();
+// }
+
+// export interface DrawOptions {
+//   /** Preview only: faint dashed outline of the design area. Never set this when printing. */
+//   guide?: boolean;
+//   /**
+//    * Canvas pixels per printer dot (default 1 = exactly the printer image).
+//    * The smooth screen preview uses e.g. 4, on a canvas 4× the paper size in dots.
+//    */
+//   res?: number;
+//   /** Preview only: keep anti-aliased edges (skip the black/white pass). Never set this when printing. */
+//   smooth?: boolean;
+// }
+
+// /**
+//  * Draws the lot/date table (reference design):
+//  *   ┌───────────┬───────────────────────┐
+//  *   │ HECHO EL  │       22.08.26        │
+//  *   ├───────────┼────────┬──────────────┤
+//  *   │           │  EXP   │   22.07.27   │
+//  *   │ hourglass ├────────┼──────────────┤
+//  *   │           │ LOTE   │ TSA26K7M2QX  │
+//  *   └───────────┴────────┴──────────────┘
+//  *
+//  * The canvas is the PAPER size (from the preset). The design area (preset wMm × hMm)
+//  * is centred on the paper, and the layout is drawn proportionally inside that area.
+//  * Text sizes follow the smaller of the two scale factors of the design area.
+//  */
+// /** What changes from label to label: the made day, the lot's code and the product's shelf life. */
+// export interface LabelData {
+//   made: Date;
+//   lotCode: string | null; // null = not made yet (first print of the day makes it)
+//   shelf?: ShelfLife;
+// }
+
+// export function drawLabel(canvas: HTMLCanvasElement, tpl: LabelTemplate, data: LabelData, opts: DrawOptions = {}) {
+//   const { made: now, lotCode, shelf } = data;
+//   const ctx = canvas.getContext("2d", { willReadFrequently: true });
+//   if (!ctx) return;
+//   const preset = getPreset(tpl.preset);
+
+//   // Everything below is measured in PRINTER DOTS; `res` canvas pixels = 1 dot
+//   const res = Math.max(1, opts.res ?? 1);
+//   // Whole paper (canvas), in dots
+//   const PW = canvas.width / res, PH = canvas.height / res;
+//   // Design area, centred on the paper (whole dots)
+//   const W = Math.min(PW, Math.round(preset.wMm * DOTS_PER_MM));
+//   const H = Math.min(PH, Math.round(preset.hMm * DOTS_PER_MM));
+//   const ox = Math.round((PW - W) / 2);
+//   const oy = Math.round((PH - H) / 2);
+
+//   // Font size factor relative to the 40×30 reference label
+//   const fs = Math.min(W / LABEL_W, H / LABEL_H);
+//   ctx.setTransform(res, 0, 0, res, 0, 0);
+//   ctx.fillStyle = "#fff";
+//   ctx.fillRect(0, 0, PW, PH);
+
+//   // Move origin to the design area, then scale around the design centre.
+//   // The table spans 0.729 W × 0.473 H at 100 %, so cap the scale to keep it 1 mm inside the PAPER.
+//   const kFit = Math.min((PW / 2 - DOTS_PER_MM) / (0.366 * W), (PH / 2 - DOTS_PER_MM) / (0.239 * H));
+//   const k = Math.max(0.5, Math.min(1.4, kFit, tpl.scale / 100));
+//   ctx.translate(ox, oy);
+//   ctx.translate(W / 2 + tpl.offsetX, H / 2 + tpl.offsetY);
+//   ctx.scale(k, k);
+//   ctx.translate(-W / 2, -H / 2);
+
+//   // Reference proportions (fractions of the design area)
+//   const X0 = 0.134 * W, X1 = 0.337 * W, X2 = 0.484 * W, X3 = 0.863 * W;
+//   const Y0 = 0.261 * H, Y1 = 0.431 * H, Y2 = 0.566 * H, Y3 = 0.734 * H;
+
+//   ctx.fillStyle = "#000";
+//   ctx.strokeStyle = "#000";
+
+//   // Table lines are drawn in dots (no design transform) and snapped to whole dots,
+//   // so a 1-dot line prints as exactly one crisp row/column of dots.
+//   const lw = Math.max(1, Math.min(3, Math.round(tpl.lineWidth)));
+//   const sx = (x: number) => Math.round(ox + W / 2 + tpl.offsetX + (x - W / 2) * k);
+//   const sy = (y: number) => Math.round(oy + H / 2 + tpl.offsetY + (y - H / 2) * k);
+//   ctx.save();
+//   ctx.setTransform(res, 0, 0, res, 0, 0);
+//   const hLine = (x0: number, x1: number, y: number) => ctx.fillRect(sx(x0), sy(y), sx(x1) - sx(x0) + lw, lw);
+//   const vLine = (x: number, y0: number, y1: number) => ctx.fillRect(sx(x), sy(y0), lw, sy(y1) - sy(y0) + lw);
+//   hLine(X0, X3, Y0);   // outer top
+//   hLine(X0, X3, Y3);   // outer bottom
+//   vLine(X0, Y0, Y3);   // outer left
+//   vLine(X3, Y0, Y3);   // outer right
+//   hLine(X0, X3, Y1);   // under the "made" row
+//   hLine(X1, X3, Y2);   // between EXP and LOTE
+//   vLine(X1, Y0, Y3);   // label column
+//   vLine(X2, Y1, Y3);   // EXP/LOTE label column
+//   ctx.restore();
+
+//   const made = formatDate(now, tpl.format);
+//   const exp = formatDate(expiryDate(now, shelf), tpl.format);
+//   const lot = buildLot(tpl, now, lotCode);
+
+//   const handmade = preset.design === "handmade";
+//   const f = fontsFor(tpl);
+
+//   cellText(ctx, f.caption, tpl.madeLabel, X0, Y0, X1, Y1, 18 * fs, !handmade);
+//   if (handmade) cellText(ctx, f.date, made, X1, Y0, X3, Y1, 42 * fs, false, 0.7 * fs);
+//   else cellText(ctx, f.date, made, X1, Y0, X3, Y1, 30 * fs);
+//   cellText(ctx, f.caption, tpl.expLabel, X1, Y1, X2, Y2, 18 * fs, !handmade);
+//   cellText(ctx, f.value, exp, X2, Y1, X3, Y2, 22 * fs);
+//   cellText(ctx, f.caption, tpl.lotLabel, X1, Y2, X2, Y3, 18 * fs, !handmade);
+//   cellText(ctx, f.value, lot, X2, Y2, X3, Y3, 22 * fs);
+
+//   // Left cell: hourglass image
+//   if (handmade || tpl.showIcon) drawHourglass(ctx, (X0 + X1) / 2, (Y1 + Y3) / 2, (Y3 - Y1) * 0.78, res);
+
+//   // Thermal head prints only pure black or white (skipped only for the smooth screen preview)
+//   ctx.setTransform(1, 0, 0, 1, 0, 0);
+//   if (!opts.smooth) {
+//     const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+//     const d = img.data;
+//     for (let i = 0; i < d.length; i += 4) {
+//       const v = d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
+//       const b = v < 150 ? 0 : 255;
+//       d[i] = d[i + 1] = d[i + 2] = b;
+//       d[i + 3] = 255;
+//     }
+//     ctx.putImageData(img, 0, 0);
+//   }
+
+//   // Preview-only guide: drawn AFTER the black/white pass so it never reaches the printer
+//   if (opts.guide && (W < PW || H < PH)) {
+//     ctx.save();
+//     ctx.strokeStyle = "rgba(120, 120, 120, 0.7)";
+//     ctx.lineWidth = res;
+//     ctx.setLineDash([4 * res, 4 * res]);
+//     ctx.strokeRect(ox * res + res / 2, oy * res + res / 2, W * res - res, H * res - res);
+//     ctx.restore();
+//   }
+// }
+// /**
+//  * Builds the image that is actually sent to the printer:
+//  * full printhead width (HEAD_DOTS) × paper height, with the paper-sized label canvas in the middle,
+//  * moved by the calibration (mm). Pixels are copied 1:1 (whole-dot offsets), so nothing is resampled.
+//  */
+// export function composeForPrinter(
+//   label: HTMLCanvasElement,
+//   calibration: { x: number; y: number } = { x: 0, y: 0 },
+//   headDots = HEAD_DOTS,
+// ): HTMLCanvasElement {
+//   const out = document.createElement("canvas");
+//   out.width = Math.max(headDots, label.width);
+//   out.height = label.height;
+//   const ctx = out.getContext("2d")!;
+//   ctx.imageSmoothingEnabled = false;
+//   ctx.fillStyle = "#fff";
+//   ctx.fillRect(0, 0, out.width, out.height);
+//   const dx = Math.round((out.width - label.width) / 2 + calibration.x * DOTS_PER_MM);
+//   const dy = Math.round(calibration.y * DOTS_PER_MM);
+//   ctx.drawImage(label, dx, dy);
+//   return out;
+// }
+
+// /**
+//  * Alignment test (paper-sized): a frame 1 mm inside the sticker edge, a centre cross and mm ticks.
+//  * Print it once per paper type; if the frame is not even on all sides, adjust the calibration.
+//  */
+// export function drawAlignmentTest(canvas: HTMLCanvasElement) {
+//   const ctx = canvas.getContext("2d")!;
+//   const W = canvas.width, H = canvas.height, m = DOTS_PER_MM;
+//   ctx.setTransform(1, 0, 0, 1, 0, 0);
+//   ctx.fillStyle = "#fff";
+//   ctx.fillRect(0, 0, W, H);
+//   ctx.fillStyle = "#000";
+//   // frame 1 mm inside the edge, 2 dots thick
+//   ctx.fillRect(m, m, W - 2 * m, 2);
+//   ctx.fillRect(m, H - m - 2, W - 2 * m, 2);
+//   ctx.fillRect(m, m, 2, H - 2 * m);
+//   ctx.fillRect(W - m - 2, m, 2, H - 2 * m);
+//   // centre cross
+//   const cx = Math.round(W / 2), cy = Math.round(H / 2);
+//   ctx.fillRect(cx - 3 * m, cy - 1, 6 * m, 2);
+//   ctx.fillRect(cx - 1, cy - 3 * m, 2, 6 * m);
+//   // mm ticks along the inside of the frame, longer every 5 mm
+//   for (let x = m; x <= W - m; x += m) {
+//     const long = Math.round((x - cx) / m) % 5 === 0;
+//     ctx.fillRect(x, m, 1, long ? 2 * m : m);
+//     ctx.fillRect(x, H - m - (long ? 2 * m : m), 1, long ? 2 * m : m);
+//   }
+//   for (let y = m; y <= H - m; y += m) {
+//     const long = Math.round((y - cy) / m) % 5 === 0;
+//     ctx.fillRect(m, y, long ? 2 * m : m, 1);
+//     ctx.fillRect(W - m - (long ? 2 * m : m), y, long ? 2 * m : m, 1);
+//   }
+//   ctx.font = `700 ${2 * m}px ui-monospace, Menlo, Consolas, monospace`;
+//   ctx.textAlign = "center";
+//   ctx.textBaseline = "middle";
+//   ctx.fillText(`${W / m}×${H / m} mm`, cx, cy + 5 * m);
+// }
+
+
+
 export const LABEL_W = 320;
 export const LABEL_H = 240;
 export const DOTS_PER_MM = 8;
@@ -11,7 +530,7 @@ export type FontKey =
   | "grotesk" | "rajdhani" | "chakra" | "saira"
   | "montech" | "montechsemi" | "lastsignature" | "typewriterserial";
 
-export type PresetId = "serum-box" | "crema-box" | "cleanser-box" | "bottle";
+export type PresetId = string;
 
 /**
  * "classic": hourglass icon + the template's fonts.
@@ -44,12 +563,13 @@ export const PRESETS: LabelPreset[] = [
   { id: "bottle", name: "Bottle", wMm: 30, hMm: 20, paperWMm: 30, paperHMm: 30, paper: "transparent", design: "handmade" },     // design 3×2 cm
 ];
 
-/** Falls back to the first preset if the saved id is missing/unknown. */
-export const getPreset = (id?: string): LabelPreset => PRESETS.find((p) => p.id === id) ?? PRESETS[0];
+/** A lot is made per day for each kind: the three boxes share the "box" lot, the bottle has its own. */
+export type LotKind = "day" | "box" | "bottle";
+export const LOT_KINDS: Record<LotKind, string> = { day: "Day batch", box: "Box", bottle: "Bottle" };
+export const lotKindOf = (_presetId: string): LotKind => "day";
 
-/** The label type named after a product ("Serum" → Serum box), if there is one. Bottle fits every product. */
-export const presetForProduct = (productName: string): LabelPreset | undefined =>
-  PRESETS.find((p) => p.name.split(" ")[0].toLowerCase() === productName.trim().toLowerCase());
+/** Falls back to the first preset if the saved id is missing/unknown. */
+export const getPreset = (id?: string, presets: LabelPreset[] = PRESETS): LabelPreset => presets.find((p) => p.id === id) ?? presets[0] ?? PRESETS[0];
 
 /** Paper names as people say them. */
 export const PAPER_NAMES: Record<LabelPaper, string> = { gaps: "White sticker", transparent: "Transparent sticker" };
@@ -102,7 +622,7 @@ export const FONTS: Record<FontKey, { label: string; family: string; weight: num
 
 /** Which font each part of the label uses, depending on the design. */
 export function fontsFor(tpl: LabelTemplate) {
-  if (getPreset(tpl.preset).design === "handmade") {
+  if (getPreset(tpl.preset, tpl.presets).design === "handmade") {
     return {
       date: tpl.dateFont ?? "lastsignature",
       value: tpl.valueFont ?? "montech",
@@ -116,6 +636,7 @@ export function fontsFor(tpl: LabelTemplate) {
 /** Fixed parts of the label. Set once, saved in the browser. */
 export interface LabelTemplate {
   preset: PresetId;       // which label type (design size + paper)
+  presets?: LabelPreset[]; // runtime catalog used by preview and print rendering
   madeLabel: string;      // "HECHO EL"
   expLabel: string;       // "EXP"
   lotLabel: string;       // "LOTE"
@@ -195,7 +716,7 @@ export function addDays(d: Date, days: number): Date {
 
 export type ShelfLife = { months: number; days: number };
 
-/** Expiry date: made date + the product's months, then + its days (default 11 months + 12 days). */
+/** Expiry date: made date + months, then + days (default 11 months + 12 days). */
 export function expiryDate(made: Date, shelf: ShelfLife = SHELF_LIFE): Date {
   return addDays(addMonths(made, shelf.months), shelf.days);
 }
@@ -210,10 +731,10 @@ export function parseDay(day: string): Date {
 }
 
 // ---------------------------------------------------------------------------
-// Lot code: one per product per day, stored in the database (see lib/db.ts).
+// Lot code: one per day for boxes and one per day for bottles, stored in the database (see lib/db.ts).
 //
-// The first print of a product on a day makes a random 6-character code; every
-// other print of that product that day, on any device, reuses it.
+// The first box (or bottle) print on a day makes a random 6-character code; every
+// other box (or bottle) print that day, on any device, reuses it.
 // ---------------------------------------------------------------------------
 
 // 32 characters, without 0/O and 1/I/L, so the printed code is easy to read
@@ -349,7 +870,7 @@ export interface DrawOptions {
  * is centred on the paper, and the layout is drawn proportionally inside that area.
  * Text sizes follow the smaller of the two scale factors of the design area.
  */
-/** What changes from label to label: the made day, the lot's code and the product's shelf life. */
+/** What changes from label to label: the made day, and the lot's code. */
 export interface LabelData {
   made: Date;
   lotCode: string | null; // null = not made yet (first print of the day makes it)
@@ -360,7 +881,7 @@ export function drawLabel(canvas: HTMLCanvasElement, tpl: LabelTemplate, data: L
   const { made: now, lotCode, shelf } = data;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) return;
-  const preset = getPreset(tpl.preset);
+  const preset = getPreset(tpl.preset, tpl.presets);
 
   // Everything below is measured in PRINTER DOTS; `res` canvas pixels = 1 dot
   const res = Math.max(1, opts.res ?? 1);

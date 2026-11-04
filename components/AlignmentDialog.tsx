@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { showToast } from "@/components/Toast";
 
 type Axis = "x" | "y";
 
@@ -28,6 +29,11 @@ export function AlignmentDialog({ open, onClose, paperName, cal, onMove, onReset
     if (open && !d.open) d.showModal();
     if (!open && d.open) d.close();
   }, [open]);
+
+  useEffect(() => {
+    if (message?.tone === "ok") showToast("success", message.text);
+    if (message?.tone === "err") showToast("error", message.text);
+  }, [message]);
 
   const arrow = (axis: Axis, delta: number, label: string, symbol: string) => (
     <button type="button" aria-label={label} onClick={() => onMove(axis, delta)}
@@ -80,7 +86,6 @@ export function AlignmentDialog({ open, onClose, paperName, cal, onMove, onReset
           </button>
         </div>
         {!canTest && testHint && <p className="mt-1.5 text-xs text-muted">{testHint}</p>}
-        {message && <p className={`mt-2 text-sm ${message.tone === "err" ? "text-err" : message.tone === "ok" ? "text-ok" : ""}`}>{message.text}</p>}
       </div>
     </dialog>
   );

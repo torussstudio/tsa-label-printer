@@ -25,6 +25,7 @@ import "@fontsource/rajdhani/700.css";
 import "@fontsource/chakra-petch/600.css";
 import "@fontsource/saira-semi-condensed/700.css";
 import "./globals.css";
+import { ToastHost } from "@/components/Toast";
 
 export const metadata: Metadata = {
   title: "Lot Label Printer",
@@ -43,7 +44,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         {/* Custom label fonts (Montech, Last Signature, Typewriter Serial), served straight from /public */}
         <link rel="stylesheet" href="/fonts/fonts.css" />
       </head>
-      <body className="min-h-full">{children}</body>
+      <body className="min-h-full">{children}<ToastHost /></body>
     </html>
   );
 }

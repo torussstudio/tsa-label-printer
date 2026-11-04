@@ -197,7 +197,7 @@ export const LabelPreview = forwardRef<LabelPreviewHandle, Props>(function Label
   const res = smooth ? SMOOTH_RES : 1;
 
   // Paper size of the selected preset, in printer dots. The design is centred inside it by drawLabel.
-  const preset = getPreset(tpl.preset);
+  const preset = getPreset(tpl.preset, tpl.presets);
   const pw = preset.paperWMm * DOTS_PER_MM;
   const ph = preset.paperHMm * DOTS_PER_MM;
   const cal = (tpl.calibration ?? DEFAULT_CALIBRATION)[preset.paper] ?? { x: 0, y: 0 };

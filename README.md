@@ -25,12 +25,12 @@ Lots and print counts are stored in Postgres (Supabase).
 - **One lot per product per day:** the first print of a product on a day (Spain time, `LOT_TIMEZONE`) makes a
   random 6-character code; every print of that product that day, on any device, reuses it.
   The label's "made" date is the lot's day.
-- **Products** (`/products`): name, shelf life (expiry = made + months + days) and an optional daily target,
+- **Products** (`/products`): name and shelf life (expiry = made + months + days),
   with each product's label and paper size, and a table of every label type.
 - **Counting:** each Print press is saved as a job (`pending` → `printed` / `failed`). Only `printed` jobs count.
 - **Settings** (label template, printer alignment, selected product, quick jobs) are saved in the `settings` table and
   shared by every device; nothing is kept in the browser. Settings a browser saved before are copied up once.
-- **Print page:** today's jobs from every device, daily target progress, and quick jobs
+- **Print page:** today's jobs from every device and quick jobs
   (product + label type + quantity).
 - **Lots** (`/lots`): search by lot code or by a raw material's supplier batch, and filter by a day or a date range
   (with the total labels and lots for that range, per product); each lot page lists its print jobs
@@ -60,7 +60,7 @@ Deploy anywhere that serves **HTTPS** (Vercel, Netlify, your own server). Web Bl
 ```
 app/                 layout (fonts + globals.css), print page
   lots/, lots/[id]/  lot search, lot detail (prints + raw materials)
-  products/          products (shelf life, daily target)
+  products/          products (shelf life)
   reports/           day/month totals page
   api/               products, lots, lots/day, lots/[id]/materials, prints, stats (route handlers)
 components/
